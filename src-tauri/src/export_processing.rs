@@ -903,7 +903,7 @@ pub async fn batch_export_images(
                             global_index + 1,
                             total_paths,
                             &file_date,
-                        );
+                        )?;
 
                         if let Some(vc_id) = explicit_vc {
                             new_stem = format!("{}_VC{:02}", new_stem, vc_id);

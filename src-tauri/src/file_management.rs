@@ -6,7 +6,7 @@ use std::fmt;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::thread;
@@ -2648,12 +2648,8 @@ pub async fn import_files(
 
                     let mut final_dest_folder = PathBuf::from(&destination_folder);
                     if settings.organize_by_date {
-                        let date_format_str = settings
-                            .date_folder_format
-                            .replace("YYYY", "%Y")
-                            .replace("MM", "%m")
-                            .replace("DD", "%d");
-                        let subfolder = file_date.format(&date_format_str).to_string();
+                        let subfolder =
+                            generate_safe_date_subfolder(&settings.date_folder_format, &file_date)?;
                         final_dest_folder.push(subfolder);
                     }
 
@@ -2666,7 +2662,7 @@ pub async fn import_files(
                         i + 1,
                         total_files,
                         &file_date,
-                    );
+                    )?;
                     let extension = source_name_path
                         .extension()
                         .and_then(|s| s.to_str())
@@ -2702,12 +2698,8 @@ pub async fn import_files(
 
                 let mut final_dest_folder = PathBuf::from(&destination_folder);
                 if settings.organize_by_date {
-                    let date_format_str = settings
-                        .date_folder_format
-                        .replace("YYYY", "%Y")
-                        .replace("MM", "%m")
-                        .replace("DD", "%d");
-                    let subfolder = file_date.format(&date_format_str).to_string();
+                    let subfolder =
+                        generate_safe_date_subfolder(&settings.date_folder_format, &file_date)?;
                     final_dest_folder.push(subfolder);
                 }
 
@@ -2720,7 +2712,7 @@ pub async fn import_files(
                     i + 1,
                     total_files,
                     &file_date,
-                );
+                )?;
                 let extension = source_path
                     .extension()
                     .and_then(|s| s.to_str())
@@ -2819,7 +2811,7 @@ pub fn generate_filename_from_template(
     sequence: usize,
     total: usize,
     file_date: &DateTime<Utc>,
-) -> String {
+) -> Result<String, String> {
     let stem = original_path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -2840,7 +2832,191 @@ pub fn generate_filename_from_template(
     result = result.replace("{hh}", &local_date.format("%H").to_string());
     result = result.replace("{mm}", &local_date.format("%M").to_string());
 
-    result
+    validate_filename_component(&result, "filename template")?;
+
+    Ok(result)
+}
+
+pub fn generate_safe_date_subfolder(
+    format_template: &str,
+    file_date: &DateTime<Utc>,
+) -> Result<PathBuf, String> {
+    let date_format_str = format_template
+        .replace("YYYY", "%Y")
+        .replace("MM", "%m")
+        .replace("DD", "%d");
+    let subfolder = file_date.format(&date_format_str).to_string();
+
+    validate_relative_path_components(&subfolder, "date folder format")
+}
+
+fn validate_relative_path_components(path_text: &str, context: &str) -> Result<PathBuf, String> {
+    if path_text.trim().is_empty() {
+        return Err(format!("{} produced an empty path", context));
+    }
+
+    let path = Path::new(path_text);
+    if path.is_absolute() {
+        return Err(format!("{} must be relative", context));
+    }
+
+    let mut validated_path = PathBuf::new();
+    let mut has_component = false;
+
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => {
+                let part = part
+                    .to_str()
+                    .ok_or_else(|| format!("{} contains invalid Unicode", context))?;
+                validate_filename_component(part, context)?;
+                validated_path.push(part);
+                has_component = true;
+            }
+            Component::CurDir => {
+                return Err(format!(
+                    "{} cannot contain current-directory components",
+                    context
+                ));
+            }
+            Component::ParentDir => {
+                return Err(format!(
+                    "{} cannot contain parent-directory components",
+                    context
+                ));
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err(format!(
+                    "{} cannot contain absolute path components",
+                    context
+                ));
+            }
+        }
+    }
+
+    if !has_component {
+        return Err(format!("{} produced an empty path", context));
+    }
+
+    Ok(validated_path)
+}
+
+fn validate_filename_component(component: &str, context: &str) -> Result<(), String> {
+    if component.is_empty() {
+        return Err(format!("{} produced an empty filename component", context));
+    }
+
+    if component == "." || component == ".." {
+        return Err(format!(
+            "{} cannot produce reserved path component '{}'",
+            context, component
+        ));
+    }
+
+    if component.ends_with(' ') || component.ends_with('.') {
+        return Err(format!(
+            "{} filename component cannot end with a space or dot: {}",
+            context, component
+        ));
+    }
+
+    if component.chars().any(|c| {
+        c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
+    }) {
+        return Err(format!(
+            "{} filename component contains invalid path characters: {}",
+            context, component
+        ));
+    }
+
+    let reserved_stem = component
+        .split('.')
+        .next()
+        .unwrap_or(component)
+        .to_ascii_uppercase();
+    const WINDOWS_RESERVED_NAMES: &[&str] = &[
+        "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "COM1", "COM2", "COM3", "COM4", "COM5",
+        "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7",
+        "LPT8", "LPT9",
+    ];
+
+    if WINDOWS_RESERVED_NAMES.contains(&reserved_stem.as_str()) {
+        return Err(format!(
+            "{} filename component uses a reserved Windows name: {}",
+            context, component
+        ));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn fixed_date() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 4, 13, 12, 34, 56)
+            .single()
+            .expect("valid test date")
+    }
+
+    #[test]
+    fn filename_template_preserves_normal_names() {
+        let generated = generate_filename_from_template(
+            "{original_filename}_{sequence}",
+            Path::new("IMG_0001.RAW"),
+            2,
+            12,
+            &fixed_date(),
+        )
+        .expect("safe filename template");
+
+        assert_eq!(generated, "IMG_0001_02");
+    }
+
+    #[test]
+    fn filename_template_rejects_path_escape_components() {
+        let date = fixed_date();
+        for template in ["../evil", "folder/evil", r"folder\evil", "/tmp/evil"] {
+            assert!(
+                generate_filename_from_template(template, Path::new("IMG_0001.RAW"), 1, 1, &date)
+                    .is_err(),
+                "template should be rejected: {template}"
+            );
+        }
+    }
+
+    #[test]
+    fn filename_template_rejects_windows_reserved_names_and_characters() {
+        let date = fixed_date();
+        for template in ["CON", "LPT1", "bad:name", "bad?", "bad."] {
+            assert!(
+                generate_filename_from_template(template, Path::new("IMG_0001.RAW"), 1, 1, &date)
+                    .is_err(),
+                "template should be rejected: {template}"
+            );
+        }
+    }
+
+    #[test]
+    fn date_folder_format_allows_safe_nested_folders() {
+        let generated =
+            generate_safe_date_subfolder("YYYY/MM-DD", &fixed_date()).expect("safe date folder");
+
+        assert_eq!(generated, PathBuf::from("2026").join("04-13"));
+    }
+
+    #[test]
+    fn date_folder_format_rejects_escape_components() {
+        let date = fixed_date();
+        for template in ["../YYYY", "YYYY/../DD", "/YYYY/MM", "YYYY/C:DD"] {
+            assert!(
+                generate_safe_date_subfolder(template, &date).is_err(),
+                "template should be rejected: {template}"
+            );
+        }
+    }
 }
 
 #[tauri::command]
@@ -2874,7 +3050,7 @@ pub fn rename_files(paths: Vec<String>, name_template: String) -> Result<Vec<Str
             i + 1,
             paths.len(),
             &file_date,
-        );
+        )?;
         let new_filename = format!("{}.{}", new_stem, extension);
         let new_path = parent.join(new_filename);
 
