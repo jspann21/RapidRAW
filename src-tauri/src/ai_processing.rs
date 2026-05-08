@@ -427,7 +427,16 @@ fn probe_cuda_execution_provider() -> (bool, Option<String>) {
     let _ = ort::init().with_name("AI-CUDA-Probe").commit();
     match cuda_session_builder() {
         Ok(_) => (true, None),
-        Err(e) => (false, Some(e.to_string())),
+        Err(e) => {
+            let message = e.to_string();
+            let lower = message.to_ascii_lowercase();
+            let help = if lower.contains("cudnn") || lower.contains("cudart") || lower.contains("cublas") {
+                " Install CUDA 12.x and cuDNN 9, or add their bin directories to PATH."
+            } else {
+                ""
+            };
+            (false, Some(format!("{}{}", message, help)))
+        }
     }
 }
 

@@ -183,10 +183,10 @@ const ConnectionStatus = ({ aiProvider, isConnected }: ConnectionStatusProps) =>
   if (aiProvider === 'local-gpu') {
     return (
       <div className="flex items-center gap-2 px-4 py-2 bg-surface rounded-lg">
-        <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
+        <div className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
         <Text variant={TextVariants.label}>Local GPU:</Text>
-        <Text variant={TextVariants.label} weight={TextWeights.bold} color={TextColors.success}>
-          CUDA
+        <Text variant={TextVariants.label} weight={TextWeights.bold} color={TextColors.info}>
+          Selected
         </Text>
       </div>
     );

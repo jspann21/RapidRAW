@@ -613,7 +613,7 @@ export default function SettingsPanel({
       const status = await invoke<LocalAiStatus>(Invokes.GetLocalAiStatus);
       setLocalAiStatus(status);
       setLocalAiMessage('');
-    } catch (err: any) {
+    } catch (err: unknown) {
       setLocalAiMessage(`Status failed: ${err}`);
     }
   };
@@ -631,7 +631,7 @@ export default function SettingsPanel({
       await invoke(Invokes.DownloadLocalAiModel, { modelId: 'lama-inpainting' });
       setLocalAiMessage('Model downloaded and verified.');
       await refreshLocalAiStatus();
-    } catch (err: any) {
+    } catch (err: unknown) {
       setLocalAiMessage(`Download failed: ${err}`);
     } finally {
       setIsLocalAiBusy(false);
@@ -645,7 +645,7 @@ export default function SettingsPanel({
       await invoke(Invokes.DeleteLocalAiModel, { modelId: 'lama-inpainting' });
       setLocalAiMessage('Model deleted.');
       await refreshLocalAiStatus();
-    } catch (err: any) {
+    } catch (err: unknown) {
       setLocalAiMessage(`Delete failed: ${err}`);
     } finally {
       setIsLocalAiBusy(false);
@@ -659,7 +659,7 @@ export default function SettingsPanel({
       const result = await invoke<string>(Invokes.RunLocalAiSelfTest);
       setLocalAiMessage(result);
       await refreshLocalAiStatus();
-    } catch (err: any) {
+    } catch (err: unknown) {
       setLocalAiMessage(`Self-test failed: ${err}`);
     } finally {
       setIsLocalAiBusy(false);
