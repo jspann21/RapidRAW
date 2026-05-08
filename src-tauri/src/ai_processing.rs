@@ -59,7 +59,9 @@ const CUDA_DOWNLOAD_URL: &str = "https://developer.nvidia.com/cuda-downloads";
 const CUDNN_DOWNLOAD_URL: &str = "https://developer.nvidia.com/cudnn-downloads";
 const CUDNN_WINDOWS_INSTALL_GUIDE_URL: &str =
     "https://docs.nvidia.com/deeplearning/cudnn/installation/latest/windows.html";
-const NVIDIA_SMI_TIMEOUT: Duration = Duration::from_millis(1500);
+const NVIDIA_SMI_TIMEOUT: Duration = Duration::from_secs(4);
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const DEPTH_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/depth_anything_v2_vits.onnx?download=true";
 const DEPTH_FILENAME: &str = "depth_anything_v2_vits.onnx";
@@ -340,10 +342,36 @@ fn default_gpu_info() -> LocalAiGpuInfo {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn nvidia_smi_command() -> Command {
+    use std::os::windows::process::CommandExt;
+
+    for path in [
+        "C:/Windows/System32/nvidia-smi.exe",
+        "C:/Program Files/NVIDIA Corporation/NVSMI/nvidia-smi.exe",
+    ] {
+        if Path::new(path).exists() {
+            let mut command = Command::new(path);
+            command.creation_flags(CREATE_NO_WINDOW);
+            return command;
+        }
+    }
+
+    let mut command = Command::new("nvidia-smi");
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+#[cfg(not(target_os = "windows"))]
+fn nvidia_smi_command() -> Command {
+    Command::new("nvidia-smi")
+}
+
 fn query_nvidia_gpu() -> LocalAiGpuInfo {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
-        let output = Command::new("nvidia-smi")
+        let mut command = nvidia_smi_command();
+        let output = command
             .args([
                 "--query-gpu=name,driver_version,memory.total,compute_cap",
                 "--format=csv,noheader,nounits",
