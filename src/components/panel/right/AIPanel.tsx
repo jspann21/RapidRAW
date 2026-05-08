@@ -1623,15 +1623,18 @@ function SettingsPanel({
   }, [container?.id]);
 
   const isQuickErasePatch = displayContainer.subMasks?.some((sm: SubMask) => sm.type === Mask.QuickEraser);
-  const providerUsesLocalInpaint = aiProvider === 'cpu' || aiProvider === 'local-gpu';
+  const providerUsesLocalInpaint = aiProvider === 'cpu';
   const promptBackendUnavailable = aiProvider === 'ai-connector' && !isAIConnectorConnected;
   const effectiveUseInpaint = providerUsesLocalInpaint || isQuickErasePatch || promptBackendUnavailable || useFastInpaint;
-  const showBackendSwitch = aiProvider === 'ai-connector' && isAIConnectorConnected && !isQuickErasePatch;
+  const showBackendSwitch =
+    ((aiProvider === 'ai-connector' && isAIConnectorConnected) || aiProvider === 'local-gpu') && !isQuickErasePatch;
   const showPromptInput = !effectiveUseInpaint;
   const backendDescription = isQuickErasePatch
     ? 'Fill selection to remove the object.'
     : aiProvider === 'local-gpu'
-      ? 'Fill selection with the local CUDA ONNX model.'
+      ? effectiveUseInpaint
+        ? 'Fill selection with the local CUDA LaMa model.'
+        : 'Describe what you want to generate with local SDXL.'
       : aiProvider === 'cpu' || effectiveUseInpaint
         ? 'Fill selection based on surrounding pixels.'
         : 'Describe what you want to generate in the selected area.';
@@ -1639,7 +1642,9 @@ function SettingsPanel({
     isGeneratingAi || displayContainer.isLoading
       ? 'Generating...'
       : aiProvider === 'local-gpu'
-        ? 'Inpaint with CUDA'
+        ? effectiveUseInpaint
+          ? 'Inpaint with CUDA'
+          : 'Generate with Local GPU'
         : aiProvider === 'ai-connector' && !effectiveUseInpaint
           ? 'Generate with AI Connector'
           : aiProvider === 'cloud' && !effectiveUseInpaint
@@ -1712,7 +1717,7 @@ function SettingsPanel({
                 checked={useFastInpaint}
                 label="Use basic inpainting"
                 onChange={setUseFastInpaint}
-                tooltip="Basic inpainting is quicker but not generative. Uncheck to use AI Connector with a text prompt."
+                tooltip="Basic inpainting is quicker but not generative. Uncheck to use the selected prompt backend."
               />
             )}
 

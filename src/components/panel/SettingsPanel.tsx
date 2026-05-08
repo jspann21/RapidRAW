@@ -139,6 +139,15 @@ interface LocalAiStatus {
     isNvidia: boolean;
   };
   models: LocalAiModelInfo[];
+  localComfy: {
+    runtimeDir: string;
+    runtimeInstalled: boolean;
+    customNodesInstalled: boolean;
+    running: boolean;
+    port?: number | null;
+    generativeReady: boolean;
+    lastError?: string | null;
+  };
 }
 
 interface LocalAiDownloadProgress {
@@ -147,7 +156,20 @@ interface LocalAiDownloadProgress {
   totalBytes?: number | null;
 }
 
-type LocalAiTask = 'runtime-refresh' | 'model-refresh' | 'download' | 'delete' | 'self-test' | 'save-runtime';
+type LocalAiTask =
+  | 'runtime-refresh'
+  | 'model-refresh'
+  | 'download'
+  | 'delete'
+  | 'generative-delete'
+  | 'self-test'
+  | 'save-runtime'
+  | 'generative-download'
+  | 'runtime-download'
+  | 'runtime-start'
+  | 'runtime-stop'
+  | 'runtime-delete'
+  | 'generative-test';
 
 interface MyLens {
   maker: string;
@@ -665,7 +687,7 @@ export default function SettingsPanel({
 
   useEffect(() => {
     const unlisten = listen<LocalAiDownloadProgress>('ai-model-download-progress', (event) => {
-      if (event.payload?.modelName === 'LaMa Inpainting') {
+      if (event.payload?.modelName) {
         setLocalAiDownloadProgress(event.payload);
       }
     });
@@ -716,6 +738,114 @@ export default function SettingsPanel({
       await refreshLocalAiStatus(true);
     } catch (err: unknown) {
       setLocalAiMessage(`Self-test failed: ${err}`);
+    } finally {
+      setLocalAiTask(null);
+    }
+  };
+
+  const handleDownloadLocalAiRuntime = async () => {
+    setLocalAiDownloadProgress(null);
+    setLocalAiTask('runtime-download');
+    setLocalAiMessage('Downloading Local GPU SDXL runtime...');
+    try {
+      await invoke(Invokes.DownloadLocalAiRuntime);
+      setLocalAiMessage('Local GPU SDXL runtime installed.');
+      await refreshLocalAiStatus(true);
+    } catch (err: unknown) {
+      setLocalAiMessage(`Runtime install failed: ${err}`);
+    } finally {
+      setLocalAiTask(null);
+      setLocalAiDownloadProgress(null);
+    }
+  };
+
+  const handleDownloadLocalAiGenerativeAssets = async () => {
+    setLocalAiDownloadProgress(null);
+    setLocalAiTask('generative-download');
+    setLocalAiMessage('Downloading Local GPU SDXL models...');
+    try {
+      await invoke(Invokes.DownloadLocalAiGenerativeAssets);
+      setLocalAiMessage('Local GPU SDXL models downloaded and verified.');
+      await refreshLocalAiStatus(true);
+    } catch (err: unknown) {
+      setLocalAiMessage(`Model download failed: ${err}`);
+    } finally {
+      setLocalAiTask(null);
+      setLocalAiDownloadProgress(null);
+    }
+  };
+
+  const handleDeleteLocalAiGenerativeAssets = async () => {
+    setLocalAiDownloadProgress(null);
+    setLocalAiTask('generative-delete');
+    setLocalAiMessage('Deleting Local GPU SDXL models...');
+    try {
+      for (const model of localAiGenerativeModels) {
+        if (model.installed) {
+          await invoke(Invokes.DeleteLocalAiModel, { modelId: model.id });
+        }
+      }
+      setLocalAiMessage('Local GPU SDXL models deleted.');
+      await refreshLocalAiStatus(false);
+    } catch (err: unknown) {
+      setLocalAiMessage(`Model delete failed: ${err}`);
+    } finally {
+      setLocalAiTask(null);
+    }
+  };
+
+  const handleStartLocalAiRuntime = async () => {
+    setLocalAiTask('runtime-start');
+    setLocalAiMessage('Starting Local GPU SDXL runtime...');
+    try {
+      await invoke(Invokes.StartLocalAiRuntime);
+      setLocalAiMessage('Local GPU SDXL runtime is running.');
+      await refreshLocalAiStatus(true);
+    } catch (err: unknown) {
+      setLocalAiMessage(`Runtime start failed: ${err}`);
+    } finally {
+      setLocalAiTask(null);
+    }
+  };
+
+  const handleStopLocalAiRuntime = async () => {
+    setLocalAiTask('runtime-delete');
+    setLocalAiMessage('Stopping Local GPU SDXL runtime...');
+    try {
+      await invoke(Invokes.StopLocalAiRuntime);
+      setLocalAiMessage('Local GPU SDXL runtime stopped.');
+      await refreshLocalAiStatus(false);
+    } catch (err: unknown) {
+      setLocalAiMessage(`Runtime stop failed: ${err}`);
+    } finally {
+      setLocalAiTask(null);
+    }
+  };
+
+  const handleDeleteLocalAiRuntime = async () => {
+    setLocalAiDownloadProgress(null);
+    setLocalAiTask('runtime-stop');
+    setLocalAiMessage('Deleting Local GPU SDXL runtime...');
+    try {
+      await invoke(Invokes.DeleteLocalAiRuntime);
+      setLocalAiMessage('Local GPU SDXL runtime deleted.');
+      await refreshLocalAiStatus(false);
+    } catch (err: unknown) {
+      setLocalAiMessage(`Runtime delete failed: ${err}`);
+    } finally {
+      setLocalAiTask(null);
+    }
+  };
+
+  const handleRunLocalGenerativeSelfTest = async () => {
+    setLocalAiTask('generative-test');
+    setLocalAiMessage('Running Local GPU SDXL self-test...');
+    try {
+      const result = await invoke<string>(Invokes.RunLocalGenerativeSelfTest);
+      setLocalAiMessage(result);
+      await refreshLocalAiStatus(true);
+    } catch (err: unknown) {
+      setLocalAiMessage(`Generative self-test failed: ${err}`);
     } finally {
       setLocalAiTask(null);
     }
@@ -1005,6 +1135,19 @@ export default function SettingsPanel({
   }, [appSettings?.keybinds]);
 
   const localAiModel = localAiStatus?.models.find((model) => model.id === 'lama-inpainting');
+  const localAiGenerativeModels = (localAiStatus?.models || []).filter((model) => model.id.startsWith('comfy-'));
+  const localAiGenerativeModelsReady =
+    localAiGenerativeModels.length > 0 && localAiGenerativeModels.every((model) => model.installed && model.valid);
+  const localAiGenerativeTask =
+    localAiTask === 'runtime-download' ||
+    localAiTask === 'generative-download' ||
+    localAiTask === 'runtime-start' ||
+    localAiTask === 'runtime-stop' ||
+    localAiTask === 'runtime-delete' ||
+    localAiTask === 'generative-delete' ||
+    localAiTask === 'generative-test';
+  const localAiLamaTask =
+    localAiTask === 'model-refresh' || localAiTask === 'download' || localAiTask === 'delete' || localAiTask === 'self-test';
   const localAiDownloadTotalBytes = localAiDownloadProgress?.totalBytes || 0;
   const localAiDownloadPercent = localAiDownloadTotalBytes
     ? Math.min(100, Math.round((localAiDownloadProgress!.downloadedBytes / localAiDownloadTotalBytes) * 100))
@@ -1027,7 +1170,21 @@ export default function SettingsPanel({
             ? 'Running CUDA self-test...'
             : localAiTask === 'save-runtime'
               ? 'Saving runtime paths...'
-              : '';
+              : localAiTask === 'runtime-download'
+                ? 'Installing SDXL runtime...'
+                : localAiTask === 'generative-download'
+                  ? 'Downloading SDXL models...'
+                  : localAiTask === 'generative-delete'
+                    ? 'Deleting SDXL models...'
+                    : localAiTask === 'runtime-start'
+                      ? 'Starting SDXL runtime...'
+                      : localAiTask === 'runtime-stop'
+                        ? 'Stopping SDXL runtime...'
+                        : localAiTask === 'runtime-delete'
+                          ? 'Deleting SDXL runtime...'
+                          : localAiTask === 'generative-test'
+                            ? 'Running SDXL self-test...'
+                            : '';
   const secondaryLocalAiButtonClass =
     'bg-surface text-text-primary border border-border-color hover:bg-bg-primary disabled:text-text-secondary';
   const localAiRuntimeDependencies = localAiStatus?.runtimeDependencies || [];
@@ -1054,6 +1211,11 @@ export default function SettingsPanel({
         : 'Runtime files found';
   const localAiProviderFailed =
     !!localAiStatus?.cudaProviderError && missingLocalAiRuntimeDependencies.length === 0;
+  const localAiGenerativeReady =
+    !!localAiStatus?.isWindows &&
+    !!localAiStatus?.cudaAvailable &&
+    !!localAiStatus?.localComfy?.generativeReady &&
+    localAiGenerativeModelsReady;
   const localAiPrerequisitesReady =
     !!localAiStatus?.isWindows &&
     !!localAiStatus?.cudaAvailable &&
@@ -2138,10 +2300,10 @@ export default function SettingsPanel({
                         >
                           <div className="space-y-6">
                             <div>
-                              <Text variant={TextVariants.heading}>Local GPU (CUDA ONNX)</Text>
+                              <Text variant={TextVariants.heading}>Local GPU</Text>
                               <Text className="mt-1">
-                                Runs RapidRAW's built-in LaMa inpainting model on an NVIDIA CUDA GPU. This accelerates
-                                local inpainting and does not use the AI Connector's SDXL prompt workflow.
+                                Runs local CUDA inpainting and a managed SDXL workflow from RapidRAW's install folder.
+                                Use LaMa for quick cleanup or SDXL for prompt-based generative replace.
                               </Text>
                             </div>
 
@@ -2174,7 +2336,7 @@ export default function SettingsPanel({
                                   {localAiStatus?.modelDir || 'Loading...'}
                                 </Text>
                                 <Text variant={TextVariants.small} className="block mt-2">
-                                  Required file type: {localAiStatus?.requiredFileTypes.join(', ') || '.onnx'}
+                                  Managed file types: {localAiStatus?.requiredFileTypes.join(', ') || '.onnx, .safetensors'}
                                 </Text>
                                 <Text variant={TextVariants.small} className="block mt-1">
                                   Disk usage: {formatBytes(localAiStatus?.diskUsageBytes || 0)}
@@ -2340,6 +2502,211 @@ export default function SettingsPanel({
                               </details>
                             </div>
 
+                            <div className="p-4 bg-bg-primary rounded-lg border border-border-color space-y-4">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <Text weight={TextWeights.semibold}>Generative SDXL</Text>
+                                  <Text variant={TextVariants.small} className="block mt-1">
+                                    Prompt-based masked generation using the same SDXL, ControlNet, and VAE model set
+                                    as AI Connector.
+                                  </Text>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <Button
+                                    className={secondaryLocalAiButtonClass}
+                                    disabled={isLocalAiBusy || !!localAiStatus?.localComfy?.runtimeInstalled}
+                                    onClick={handleDownloadLocalAiRuntime}
+                                  >
+                                    <Download
+                                      size={16}
+                                      className={localAiTask === 'runtime-download' ? 'animate-pulse' : ''}
+                                    />
+                                    {localAiTask === 'runtime-download' ? 'Installing...' : 'Install Runtime'}
+                                  </Button>
+                                  <Button
+                                    disabled={isLocalAiBusy || !localAiStatus?.modelDirWritable || localAiGenerativeModelsReady}
+                                    onClick={handleDownloadLocalAiGenerativeAssets}
+                                  >
+                                    <Download
+                                      size={16}
+                                      className={
+                                        localAiTask === 'generative-download' && !localAiDownloadProgress
+                                          ? 'animate-pulse'
+                                          : ''
+                                      }
+                                    />
+                                    {localAiTask === 'generative-download' ? 'Downloading...' : 'Download Models'}
+                                  </Button>
+                                  <Button
+                                    className={secondaryLocalAiButtonClass}
+                                    disabled={isLocalAiBusy || !localAiGenerativeModels.some((model) => model.installed)}
+                                    onClick={handleDeleteLocalAiGenerativeAssets}
+                                  >
+                                    <Trash2
+                                      size={16}
+                                      className={localAiTask === 'generative-delete' ? 'animate-pulse' : ''}
+                                    />
+                                    {localAiTask === 'generative-delete' ? 'Deleting...' : 'Delete Models'}
+                                  </Button>
+                                  <Button
+                                    className={secondaryLocalAiButtonClass}
+                                    disabled={
+                                      isLocalAiBusy ||
+                                      !localAiStatus?.localComfy?.runtimeInstalled ||
+                                      !localAiGenerativeModelsReady ||
+                                      !!localAiStatus?.localComfy?.running
+                                    }
+                                    onClick={handleStartLocalAiRuntime}
+                                  >
+                                    <PlayCircle
+                                      size={16}
+                                      className={localAiTask === 'runtime-start' ? 'animate-pulse' : ''}
+                                    />
+                                    {localAiTask === 'runtime-start' ? 'Starting...' : 'Start'}
+                                  </Button>
+                                  <Button
+                                    className={secondaryLocalAiButtonClass}
+                                    disabled={isLocalAiBusy || !localAiStatus?.localComfy?.running}
+                                    onClick={handleStopLocalAiRuntime}
+                                  >
+                                    <RefreshCw
+                                      size={16}
+                                      className={localAiTask === 'runtime-stop' ? 'animate-spin' : ''}
+                                    />
+                                    {localAiTask === 'runtime-stop' ? 'Stopping...' : 'Stop'}
+                                  </Button>
+                                  <Button
+                                    className={secondaryLocalAiButtonClass}
+                                    disabled={isLocalAiBusy || !localAiStatus?.localComfy?.runtimeInstalled}
+                                    onClick={handleDeleteLocalAiRuntime}
+                                  >
+                                    <Trash2
+                                      size={16}
+                                      className={localAiTask === 'runtime-delete' ? 'animate-pulse' : ''}
+                                    />
+                                    {localAiTask === 'runtime-delete' ? 'Deleting...' : 'Delete Runtime'}
+                                  </Button>
+                                  <Button
+                                    disabled={isLocalAiBusy || !localAiGenerativeReady}
+                                    onClick={handleRunLocalGenerativeSelfTest}
+                                  >
+                                    <PlayCircle
+                                      size={16}
+                                      className={localAiTask === 'generative-test' ? 'animate-pulse' : ''}
+                                    />
+                                    {localAiTask === 'generative-test' ? 'Testing...' : 'Run Test'}
+                                  </Button>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                <Text
+                                  as="div"
+                                  color={localAiStatus?.localComfy?.runtimeInstalled ? TextColors.success : TextColors.info}
+                                  variant={TextVariants.small}
+                                  className="rounded-md bg-surface px-3 py-2"
+                                >
+                                  Runtime: {localAiStatus?.localComfy?.runtimeInstalled ? 'Installed' : 'Not installed'}
+                                </Text>
+                                <Text
+                                  as="div"
+                                  color={localAiGenerativeModelsReady ? TextColors.success : TextColors.info}
+                                  variant={TextVariants.small}
+                                  className="rounded-md bg-surface px-3 py-2"
+                                >
+                                  Models: {localAiGenerativeModelsReady ? 'Installed' : 'Missing'}
+                                </Text>
+                                <Text
+                                  as="div"
+                                  color={localAiStatus?.localComfy?.running ? TextColors.success : TextColors.info}
+                                  variant={TextVariants.small}
+                                  className="rounded-md bg-surface px-3 py-2"
+                                >
+                                  Service: {localAiStatus?.localComfy?.running ? `Running on ${localAiStatus.localComfy.port}` : 'Stopped'}
+                                </Text>
+                              </div>
+
+                              <Text variant={TextVariants.small} className="block break-all">
+                                Runtime folder: {localAiStatus?.localComfy?.runtimeDir || 'Loading...'}
+                              </Text>
+                              <Text variant={TextVariants.small} className="block">
+                                SDXL model file type: .safetensors
+                              </Text>
+
+                              {localAiGenerativeTask && (
+                                <div className="space-y-2" aria-live="polite">
+                                  <div className="flex items-center gap-2">
+                                    <RefreshCw size={14} className="animate-spin text-accent" />
+                                    <Text variant={TextVariants.small} color={TextColors.accent}>
+                                      {localAiTaskLabel}
+                                    </Text>
+                                  </div>
+                                  <div className="h-2 overflow-hidden rounded-full bg-surface" role="progressbar">
+                                    <div className="h-full w-1/3 animate-pulse rounded-full bg-accent" />
+                                  </div>
+                                </div>
+                              )}
+
+                              {localAiDownloadProgress &&
+                                (localAiTask === 'generative-download' || localAiTask === 'runtime-download') && (
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <Text variant={TextVariants.small} color={TextColors.accent}>
+                                      {localAiDownloadProgress.modelName}: {localAiDownloadLabel}
+                                    </Text>
+                                    {localAiDownloadPercent !== null && (
+                                      <Text variant={TextVariants.small} color={TextColors.accent}>
+                                        {localAiDownloadPercent}%
+                                      </Text>
+                                    )}
+                                  </div>
+                                  <div
+                                    className="h-2 overflow-hidden rounded-full bg-surface"
+                                    role="progressbar"
+                                    aria-label="Generative SDXL model download progress"
+                                    aria-valuemin={0}
+                                    aria-valuemax={100}
+                                    aria-valuenow={localAiDownloadPercent ?? undefined}
+                                  >
+                                    <div
+                                      className={clsx('h-full rounded-full bg-accent transition-all', {
+                                        'animate-pulse': localAiDownloadPercent === null,
+                                      })}
+                                      style={{
+                                        width: localAiDownloadPercent === null ? '35%' : `${localAiDownloadPercent}%`,
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              )}
+
+                              <details className="rounded-md bg-surface p-3">
+                                <summary className="cursor-pointer text-sm font-semibold">Model files</summary>
+                                <div className="mt-3 grid grid-cols-1 xl:grid-cols-3 gap-2">
+                                  {localAiGenerativeModels.map((model) => (
+                                    <Text
+                                      key={model.id}
+                                      as="div"
+                                      color={model.installed && model.valid ? TextColors.success : TextColors.info}
+                                      variant={TextVariants.small}
+                                      className="min-w-0 rounded-md bg-bg-primary px-3 py-2"
+                                    >
+                                      <span className="font-medium">{model.name}</span>
+                                      <span className="block break-all text-text-secondary">
+                                        {model.filename} · {model.installed ? formatBytes(model.sizeBytes) : 'Missing'}
+                                      </span>
+                                    </Text>
+                                  ))}
+                                </div>
+                              </details>
+
+                              {localAiStatus?.localComfy?.lastError && (
+                                <Text color={TextColors.error} className="block">
+                                  Runtime: {localAiStatus.localComfy.lastError}
+                                </Text>
+                              )}
+                            </div>
+
                             <div className="p-4 bg-bg-primary rounded-lg border border-border-color space-y-3">
                               <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div>
@@ -2415,7 +2782,7 @@ export default function SettingsPanel({
                                 {localAiStatusMessage}
                               </Text>
 
-                              {localAiTask && localAiTask !== 'download' && (
+                              {localAiLamaTask && localAiTask !== 'download' && (
                                 <div className="space-y-2" aria-live="polite">
                                   <div className="flex items-center gap-2">
                                     <RefreshCw size={14} className="animate-spin text-accent" />
@@ -2429,7 +2796,7 @@ export default function SettingsPanel({
                                 </div>
                               )}
 
-                              {localAiDownloadProgress && (
+                              {localAiDownloadProgress && localAiTask === 'download' && (
                                 <div className="space-y-2">
                                   <div className="flex items-center justify-between gap-3">
                                     <Text variant={TextVariants.small} color={TextColors.accent}>
