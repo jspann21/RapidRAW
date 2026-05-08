@@ -1050,16 +1050,31 @@ export default function SettingsPanel({
     : missingCudaRuntime
       ? 'CUDA Toolkit missing'
       : localAiStatus?.cudaProviderAvailable
-        ? 'Runtime ready'
-        : 'Runtime check pending';
-  const localAiReady =
+        ? 'Runtime tested'
+        : 'Runtime files found';
+  const localAiProviderFailed =
+    !!localAiStatus?.cudaProviderError && missingLocalAiRuntimeDependencies.length === 0;
+  const localAiPrerequisitesReady =
     !!localAiStatus?.isWindows &&
     !!localAiStatus?.cudaAvailable &&
-    !!localAiStatus?.cudaProviderAvailable &&
     !!localAiStatus?.modelDirWritable &&
     (localAiStatus?.missingRuntimeDependencies.length || 0) === 0 &&
     !!localAiModel?.installed &&
     !!localAiModel?.valid;
+  const localAiReady = localAiPrerequisitesReady && !localAiProviderFailed;
+  const localAiStatusMessage = localAiReady
+    ? localAiStatus?.cudaProviderAvailable
+      ? 'Local GPU is ready.'
+      : 'Local GPU is ready. Run Test is optional.'
+    : localAiProviderFailed
+      ? 'CUDA runtime check failed. Refresh or run the test after fixing the error below.'
+      : !localAiStatus?.cudaAvailable
+        ? 'No NVIDIA CUDA GPU detected.'
+        : !localAiModel?.installed
+          ? 'Download the LaMa model to enable Local GPU inpainting.'
+          : missingLocalAiRuntimeDependencies.length
+            ? 'Install the missing CUDA runtime shown above.'
+            : 'Local GPU setup is incomplete.';
 
   return (
     <>
@@ -2378,7 +2393,10 @@ export default function SettingsPanel({
                                     <Trash2 size={16} className={localAiTask === 'delete' ? 'animate-pulse' : ''} />
                                     {localAiTask === 'delete' ? 'Deleting...' : 'Delete'}
                                   </Button>
-                                  <Button disabled={isLocalAiBusy || !localAiReady} onClick={handleRunLocalAiSelfTest}>
+                                  <Button
+                                    disabled={isLocalAiBusy || !localAiPrerequisitesReady}
+                                    onClick={handleRunLocalAiSelfTest}
+                                  >
                                     <PlayCircle
                                       size={16}
                                       className={localAiTask === 'self-test' ? 'animate-pulse' : ''}
@@ -2394,7 +2412,7 @@ export default function SettingsPanel({
                                 className="flex items-center gap-2"
                               >
                                 {localAiReady ? <Wifi size={16} /> : <Info size={16} />}
-                                {localAiReady ? 'Local GPU is ready.' : 'Complete the checks above before using CUDA.'}
+                                {localAiStatusMessage}
                               </Text>
 
                               {localAiTask && localAiTask !== 'download' && (
