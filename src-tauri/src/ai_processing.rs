@@ -658,15 +658,17 @@ fn missing_runtime_dependency_help(missing: &[String]) -> String {
         .any(|name| name.to_ascii_lowercase().contains("cudnn"));
     let mut help = Vec::new();
 
-    if has_cuda {
-        help.push(format!(
-            "Install NVIDIA CUDA Toolkit 12.x from {CUDA_DOWNLOAD_URL}, then set the CUDA bin folder to a path like C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.x\\bin."
-        ));
-    }
-    if has_cudnn {
-        help.push(format!(
-            "Install NVIDIA cuDNN 9 for Windows from {CUDNN_DOWNLOAD_URL} or follow {CUDNN_WINDOWS_INSTALL_GUIDE_URL}, then set the cuDNN 9 bin folder to the folder containing cudnn64_9.dll, usually C:\\Program Files\\NVIDIA\\CUDNN\\v9.x\\bin."
-        ));
+    match (has_cuda, has_cudnn) {
+        (true, true) => help.push(format!(
+            "CUDA Toolkit 12.x and cuDNN 9 are missing. Install CUDA from {CUDA_DOWNLOAD_URL}, then install cuDNN from {CUDNN_DOWNLOAD_URL}. Guide: {CUDNN_WINDOWS_INSTALL_GUIDE_URL}."
+        )),
+        (true, false) => help.push(format!(
+            "CUDA Toolkit 12.x is missing. Install it from {CUDA_DOWNLOAD_URL}, then refresh Local GPU status."
+        )),
+        (false, true) => help.push(format!(
+            "cuDNN 9 is missing. Install it from {CUDNN_DOWNLOAD_URL}, then refresh Local GPU status. Guide: {CUDNN_WINDOWS_INSTALL_GUIDE_URL}."
+        )),
+        (false, false) => help.push("Required CUDA runtime files are missing. Install CUDA Toolkit 12.x and cuDNN 9, then refresh Local GPU status.".to_string()),
     }
 
     help.join(" ")
@@ -742,11 +744,7 @@ fn probe_cuda_execution_provider(
         let help = missing_runtime_dependency_help(&missing_runtime_dependencies);
         return (
             false,
-            Some(format!(
-                "Missing CUDA runtime dependencies: {}. {}",
-                missing_runtime_dependencies.join(", "),
-                help
-            )),
+            Some(help),
             runtime_dependencies,
             missing_runtime_dependencies,
         );
@@ -1237,11 +1235,7 @@ pub async fn get_or_init_lama_cuda_model(
     let (_, missing_runtime_dependencies) = prepare_cuda_runtime(app_handle);
     if !missing_runtime_dependencies.is_empty() {
         let help = missing_runtime_dependency_help(&missing_runtime_dependencies);
-        return Err(anyhow::anyhow!(
-            "Missing CUDA runtime dependencies: {}. {}",
-            missing_runtime_dependencies.join(", "),
-            help
-        ));
+        return Err(anyhow::anyhow!(help));
     }
 
     download_and_verify_model(

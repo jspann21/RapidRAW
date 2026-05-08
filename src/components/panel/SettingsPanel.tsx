@@ -963,6 +963,7 @@ export default function SettingsPanel({
   }, [appSettings?.keybinds]);
 
   const localAiModel = localAiStatus?.models.find((model) => model.id === 'lama-inpainting');
+  const localAiRuntimeDependencies = localAiStatus?.runtimeDependencies || [];
   const missingLocalAiRuntimeDependencies = localAiStatus?.missingRuntimeDependencies || [];
   const missingCudaRuntime = missingLocalAiRuntimeDependencies.some((dependency) => {
     const lower = dependency.toLowerCase();
@@ -971,6 +972,19 @@ export default function SettingsPanel({
   const missingCudnnRuntime = missingLocalAiRuntimeDependencies.some((dependency) =>
     dependency.toLowerCase().includes('cudnn'),
   );
+  const cudaRuntimeReady =
+    localAiRuntimeDependencies.some((dependency) => dependency.kind === 'CUDA' && dependency.found) &&
+    !missingCudaRuntime;
+  const cudnnRuntimeReady =
+    localAiRuntimeDependencies.some((dependency) => dependency.kind === 'cuDNN' && dependency.found) &&
+    !missingCudnnRuntime;
+  const runtimeStatusLabel = missingCudnnRuntime
+    ? 'cuDNN 9 missing'
+    : missingCudaRuntime
+      ? 'CUDA Toolkit missing'
+      : localAiStatus?.cudaProviderAvailable
+        ? 'Runtime ready'
+        : 'Runtime check pending';
   const localAiReady =
     !!localAiStatus?.isWindows &&
     !!localAiStatus?.cudaAvailable &&
@@ -2091,139 +2105,151 @@ export default function SettingsPanel({
                                 <div>
                                   <Text weight={TextWeights.semibold}>CUDA Runtime</Text>
                                   <Text variant={TextVariants.small} className="block mt-1">
-                                    RapidRAW searches the install folder, PATH, common NVIDIA folders, and these
-                                    optional bin folders.
+                                    {runtimeStatusLabel}
                                   </Text>
                                 </div>
                                 <Button
                                   className="bg-surface"
                                   disabled={isLocalAiBusy}
-                                  onClick={handleLocalAiRuntimePathSave}
+                                  onClick={refreshLocalAiStatus}
                                 >
                                   <RefreshCw size={16} />
-                                  Save & Refresh
+                                  Refresh
                                 </Button>
                               </div>
 
-                              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                                <label className="space-y-1">
-                                  <Text variant={TextVariants.small} weight={TextWeights.semibold}>
-                                    CUDA bin folder
-                                  </Text>
-                                  <Input
-                                    disabled={isLocalAiBusy}
-                                    onBlur={handleLocalAiRuntimePathSave}
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                                      setLocalAiCudaRuntimePath(e.target.value)
-                                    }
-                                    onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.stopPropagation()}
-                                    placeholder="C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8\bin"
-                                    value={localAiCudaRuntimePath}
-                                  />
-                                </label>
-                                <label className="space-y-1">
-                                  <Text variant={TextVariants.small} weight={TextWeights.semibold}>
-                                    cuDNN 9 bin folder
-                                  </Text>
-                                  <Input
-                                    disabled={isLocalAiBusy}
-                                    onBlur={handleLocalAiRuntimePathSave}
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                                      setLocalAiCudnnRuntimePath(e.target.value)
-                                    }
-                                    onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.stopPropagation()}
-                                    placeholder="C:\Program Files\NVIDIA\CUDNN\v9.x\bin"
-                                    value={localAiCudnnRuntimePath}
-                                  />
-                                </label>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <Text
+                                  as="div"
+                                  color={cudaRuntimeReady ? TextColors.success : TextColors.error}
+                                  variant={TextVariants.small}
+                                  className="flex items-center gap-2 rounded-md bg-surface px-3 py-2"
+                                >
+                                  {cudaRuntimeReady ? <Wifi size={14} /> : <WifiOff size={14} />}
+                                  CUDA Toolkit {cudaRuntimeReady ? 'found' : 'not found'}
+                                </Text>
+                                <Text
+                                  as="div"
+                                  color={cudnnRuntimeReady ? TextColors.success : TextColors.error}
+                                  variant={TextVariants.small}
+                                  className="flex items-center gap-2 rounded-md bg-surface px-3 py-2"
+                                >
+                                  {cudnnRuntimeReady ? <Wifi size={14} /> : <WifiOff size={14} />}
+                                  cuDNN 9 {cudnnRuntimeReady ? 'found' : 'not found'}
+                                </Text>
                               </div>
 
-                              {localAiStatus?.runtimeDependencies.length ? (
-                                <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
-                                  {localAiStatus.runtimeDependencies.map((dependency) => (
-                                    <Text
-                                      key={`${dependency.kind}-${dependency.name}`}
-                                      as="div"
-                                      color={dependency.found ? TextColors.success : TextColors.error}
-                                      variant={TextVariants.small}
-                                      className="flex min-w-0 items-start gap-2 rounded-md bg-surface px-3 py-2"
-                                    >
-                                      {dependency.found ? (
-                                        <Wifi size={14} className="mt-0.5 shrink-0" />
-                                      ) : (
-                                        <WifiOff size={14} className="mt-0.5 shrink-0" />
-                                      )}
-                                      <span className="min-w-0">
-                                        <span className="font-medium">
-                                          {dependency.name} ({dependency.kind})
-                                        </span>
-                                        <span className="block break-all text-text-secondary">
-                                          {dependency.path || 'Missing'}
-                                        </span>
-                                      </span>
-                                    </Text>
-                                  ))}
-                                </div>
-                              ) : (
-                                <Text variant={TextVariants.small} className="block">
-                                  Runtime dependency checks are available on Windows x64 builds.
-                                </Text>
-                              )}
-
-                              {!!localAiStatus?.missingRuntimeDependencies.length && (
-                                <Text color={TextColors.error} variant={TextVariants.small} className="block">
-                                  Missing: {localAiStatus.missingRuntimeDependencies.join(', ')}
-                                </Text>
-                              )}
-
                               {!!missingLocalAiRuntimeDependencies.length && (
-                                <div className="space-y-2 rounded-md border border-border-color bg-surface p-3">
-                                  <Text weight={TextWeights.semibold}>How to fix missing files</Text>
+                                <div className="space-y-2 rounded-md bg-surface p-3">
+                                  <Text weight={TextWeights.semibold}>Install missing runtime</Text>
                                   {missingCudaRuntime && (
                                     <Text variant={TextVariants.small} className="block">
-                                      Install NVIDIA CUDA Toolkit 12.x for Windows from{' '}
                                       <a
                                         className="font-semibold text-accent hover:underline"
                                         href={CUDA_DOWNLOAD_URL}
                                         rel="noopener noreferrer"
                                         target="_blank"
                                       >
-                                        NVIDIA CUDA downloads
+                                        Download CUDA Toolkit 12.x
                                       </a>
-                                      . Then set the CUDA bin folder above to something like{' '}
-                                      <span className="font-mono">
-                                        C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.x\bin
-                                      </span>
-                                      .
+                                      , install it for Windows, then refresh.
                                     </Text>
                                   )}
                                   {missingCudnnRuntime && (
                                     <Text variant={TextVariants.small} className="block">
-                                      Install NVIDIA cuDNN 9 for Windows from{' '}
                                       <a
                                         className="font-semibold text-accent hover:underline"
                                         href={CUDNN_DOWNLOAD_URL}
                                         rel="noopener noreferrer"
                                         target="_blank"
                                       >
-                                        NVIDIA cuDNN downloads
+                                        Download cuDNN 9
                                       </a>
-                                      , or follow the{' '}
+                                      , install it for Windows, then refresh. Use NVIDIA’s{' '}
                                       <a
                                         className="font-semibold text-accent hover:underline"
                                         href={CUDNN_WINDOWS_INSTALL_GUIDE_URL}
                                         rel="noopener noreferrer"
                                         target="_blank"
                                       >
-                                        Windows cuDNN install guide
+                                        Windows guide
                                       </a>
-                                      . Then set the cuDNN 9 bin folder above to the folder containing{' '}
-                                      <span className="font-mono">cudnn64_9.dll</span>, usually{' '}
-                                      <span className="font-mono">C:\Program Files\NVIDIA\CUDNN\v9.x\bin</span>.
+                                      {' '}if needed.
                                     </Text>
                                   )}
                                 </div>
                               )}
+
+                              <details className="rounded-md bg-surface p-3">
+                                <summary className="cursor-pointer text-sm font-semibold">Advanced details</summary>
+                                <div className="mt-3 space-y-3">
+                                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                                    <label className="space-y-1">
+                                      <Text variant={TextVariants.small} weight={TextWeights.semibold}>
+                                        CUDA bin folder
+                                      </Text>
+                                      <Input
+                                        disabled={isLocalAiBusy}
+                                        onBlur={handleLocalAiRuntimePathSave}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                          setLocalAiCudaRuntimePath(e.target.value)
+                                        }
+                                        onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.stopPropagation()}
+                                        placeholder="C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.x\bin"
+                                        value={localAiCudaRuntimePath}
+                                      />
+                                    </label>
+                                    <label className="space-y-1">
+                                      <Text variant={TextVariants.small} weight={TextWeights.semibold}>
+                                        cuDNN 9 bin folder
+                                      </Text>
+                                      <Input
+                                        disabled={isLocalAiBusy}
+                                        onBlur={handleLocalAiRuntimePathSave}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                          setLocalAiCudnnRuntimePath(e.target.value)
+                                        }
+                                        onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.stopPropagation()}
+                                        placeholder="C:\Program Files\NVIDIA\CUDNN\v9.x\bin"
+                                        value={localAiCudnnRuntimePath}
+                                      />
+                                    </label>
+                                  </div>
+                                  {!!missingLocalAiRuntimeDependencies.length && (
+                                    <Text color={TextColors.error} variant={TextVariants.small} className="block">
+                                      Missing files: {missingLocalAiRuntimeDependencies.join(', ')}
+                                    </Text>
+                                  )}
+                                  {!!localAiRuntimeDependencies.length && (
+                                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
+                                      {localAiRuntimeDependencies.map((dependency) => (
+                                        <Text
+                                          key={`${dependency.kind}-${dependency.name}`}
+                                          as="div"
+                                          color={dependency.found ? TextColors.success : TextColors.error}
+                                          variant={TextVariants.small}
+                                          className="min-w-0 rounded-md bg-bg-primary px-3 py-2"
+                                        >
+                                          <span className="font-medium">
+                                            {dependency.name} ({dependency.kind})
+                                          </span>
+                                          <span className="block break-all text-text-secondary">
+                                            {dependency.path || 'Missing'}
+                                          </span>
+                                        </Text>
+                                      ))}
+                                    </div>
+                                  )}
+                                  <Button
+                                    className="bg-bg-primary"
+                                    disabled={isLocalAiBusy}
+                                    onClick={handleLocalAiRuntimePathSave}
+                                  >
+                                    <RefreshCw size={16} />
+                                    Save Paths & Refresh
+                                  </Button>
+                                </div>
+                              </details>
                             </div>
 
                             <div className="p-4 bg-bg-primary rounded-lg border border-border-color space-y-3">
@@ -2304,7 +2330,7 @@ export default function SettingsPanel({
                                   , then restart RapidRAW.
                                 </Text>
                               )}
-                              {localAiStatus?.cudaProviderError && (
+                              {localAiStatus?.cudaProviderError && !missingLocalAiRuntimeDependencies.length && (
                                 <Text color={TextColors.error} className="block">
                                   CUDA provider: {localAiStatus.cudaProviderError}
                                 </Text>
