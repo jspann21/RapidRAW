@@ -313,6 +313,10 @@ pub struct AppSettings {
     pub thumbnail_size: Option<String>,
     pub thumbnail_aspect_ratio: Option<String>,
     pub ai_provider: Option<String>,
+    #[serde(default)]
+    pub local_ai_cuda_runtime_path: Option<String>,
+    #[serde(default)]
+    pub local_ai_cudnn_runtime_path: Option<String>,
     #[serde(default = "default_adjustment_visibility")]
     pub adjustment_visibility: HashMap<String, bool>,
     pub enable_exif_reading: Option<bool>,
@@ -401,6 +405,8 @@ impl Default for AppSettings {
             thumbnail_size: Some("medium".to_string()),
             thumbnail_aspect_ratio: Some("cover".to_string()),
             ai_provider: Some("cpu".to_string()),
+            local_ai_cuda_runtime_path: None,
+            local_ai_cudnn_runtime_path: None,
             adjustment_visibility: default_adjustment_visibility(),
             enable_exif_reading: Some(false),
             active_tree_section: Some("current".to_string()),

@@ -123,6 +123,13 @@ interface LocalAiStatus {
   modelDirError?: string | null;
   diskUsageBytes: number;
   requiredFileTypes: string[];
+  runtimeDependencies: Array<{
+    name: string;
+    kind: string;
+    found: boolean;
+    path?: string | null;
+  }>;
+  missingRuntimeDependencies: string[];
   gpu: {
     name?: string | null;
     driverVersion?: string | null;
@@ -485,6 +492,8 @@ export default function SettingsPanel({
   const [localAiStatus, setLocalAiStatus] = useState<LocalAiStatus | null>(null);
   const [localAiMessage, setLocalAiMessage] = useState('');
   const [isLocalAiBusy, setIsLocalAiBusy] = useState(false);
+  const [localAiCudaRuntimePath, setLocalAiCudaRuntimePath] = useState(appSettings?.localAiCudaRuntimePath || '');
+  const [localAiCudnnRuntimePath, setLocalAiCudnnRuntimePath] = useState(appSettings?.localAiCudnnRuntimePath || '');
   const [hasInteractedWithLivePreview, setHasInteractedWithLivePreview] = useState(false);
   const [recordingAction, setRecordingAction] = useState<string | null>(null);
 
@@ -548,6 +557,12 @@ export default function SettingsPanel({
     }
     if (appSettings?.aiProvider !== aiProvider) {
       setAiProvider(appSettings?.aiProvider || 'cpu');
+    }
+    if (appSettings?.localAiCudaRuntimePath !== localAiCudaRuntimePath) {
+      setLocalAiCudaRuntimePath(appSettings?.localAiCudaRuntimePath || '');
+    }
+    if (appSettings?.localAiCudnnRuntimePath !== localAiCudnnRuntimePath) {
+      setLocalAiCudnnRuntimePath(appSettings?.localAiCudnnRuntimePath || '');
     }
     setProcessingSettings({
       editorPreviewResolution: appSettings?.editorPreviewResolution || 1920,
@@ -664,6 +679,15 @@ export default function SettingsPanel({
     } finally {
       setIsLocalAiBusy(false);
     }
+  };
+
+  const handleLocalAiRuntimePathSave = async () => {
+    await onSettingsChange({
+      ...appSettings,
+      localAiCudaRuntimePath: localAiCudaRuntimePath.trim() || undefined,
+      localAiCudnnRuntimePath: localAiCudnnRuntimePath.trim() || undefined,
+    });
+    await refreshLocalAiStatus();
   };
 
   const handlePreviewModeChange = (mode: 'static' | 'dynamic') => {
@@ -938,6 +962,7 @@ export default function SettingsPanel({
     !!localAiStatus?.cudaAvailable &&
     !!localAiStatus?.cudaProviderAvailable &&
     !!localAiStatus?.modelDirWritable &&
+    (localAiStatus?.missingRuntimeDependencies.length || 0) === 0 &&
     !!localAiModel?.installed &&
     !!localAiModel?.valid;
 
@@ -2045,6 +2070,97 @@ export default function SettingsPanel({
                                   Disk usage: {formatBytes(localAiStatus?.diskUsageBytes || 0)}
                                 </Text>
                               </div>
+                            </div>
+
+                            <div className="p-4 bg-bg-primary rounded-lg border border-border-color space-y-4">
+                              <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                  <Text weight={TextWeights.semibold}>CUDA Runtime</Text>
+                                  <Text variant={TextVariants.small} className="block mt-1">
+                                    RapidRAW searches the install folder, PATH, common NVIDIA folders, and these
+                                    optional bin folders.
+                                  </Text>
+                                </div>
+                                <Button
+                                  className="bg-surface"
+                                  disabled={isLocalAiBusy}
+                                  onClick={handleLocalAiRuntimePathSave}
+                                >
+                                  <RefreshCw size={16} />
+                                  Save & Refresh
+                                </Button>
+                              </div>
+
+                              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                                <label className="space-y-1">
+                                  <Text variant={TextVariants.small} weight={TextWeights.semibold}>
+                                    CUDA bin folder
+                                  </Text>
+                                  <Input
+                                    disabled={isLocalAiBusy}
+                                    onBlur={handleLocalAiRuntimePathSave}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                      setLocalAiCudaRuntimePath(e.target.value)
+                                    }
+                                    onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.stopPropagation()}
+                                    placeholder="C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8\bin"
+                                    value={localAiCudaRuntimePath}
+                                  />
+                                </label>
+                                <label className="space-y-1">
+                                  <Text variant={TextVariants.small} weight={TextWeights.semibold}>
+                                    cuDNN 9 bin folder
+                                  </Text>
+                                  <Input
+                                    disabled={isLocalAiBusy}
+                                    onBlur={handleLocalAiRuntimePathSave}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                      setLocalAiCudnnRuntimePath(e.target.value)
+                                    }
+                                    onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.stopPropagation()}
+                                    placeholder="C:\Program Files\NVIDIA\CUDNN\v9.x\bin"
+                                    value={localAiCudnnRuntimePath}
+                                  />
+                                </label>
+                              </div>
+
+                              {localAiStatus?.runtimeDependencies.length ? (
+                                <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
+                                  {localAiStatus.runtimeDependencies.map((dependency) => (
+                                    <Text
+                                      key={`${dependency.kind}-${dependency.name}`}
+                                      as="div"
+                                      color={dependency.found ? TextColors.success : TextColors.error}
+                                      variant={TextVariants.small}
+                                      className="flex min-w-0 items-start gap-2 rounded-md bg-surface px-3 py-2"
+                                    >
+                                      {dependency.found ? (
+                                        <Wifi size={14} className="mt-0.5 shrink-0" />
+                                      ) : (
+                                        <WifiOff size={14} className="mt-0.5 shrink-0" />
+                                      )}
+                                      <span className="min-w-0">
+                                        <span className="font-medium">
+                                          {dependency.name} ({dependency.kind})
+                                        </span>
+                                        <span className="block break-all text-text-secondary">
+                                          {dependency.path || 'Missing'}
+                                        </span>
+                                      </span>
+                                    </Text>
+                                  ))}
+                                </div>
+                              ) : (
+                                <Text variant={TextVariants.small} className="block">
+                                  Runtime dependency checks are available on Windows x64 builds.
+                                </Text>
+                              )}
+
+                              {!!localAiStatus?.missingRuntimeDependencies.length && (
+                                <Text color={TextColors.error} variant={TextVariants.small} className="block">
+                                  Missing: {localAiStatus.missingRuntimeDependencies.join(', ')}
+                                </Text>
+                              )}
                             </div>
 
                             <div className="p-4 bg-bg-primary rounded-lg border border-border-color space-y-3">

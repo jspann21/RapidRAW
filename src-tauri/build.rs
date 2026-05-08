@@ -4,8 +4,7 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
-const ORT_GPU_WINDOWS_X64_ZIP: &str =
-    "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-win-x64-gpu-1.22.0.zip";
+const ORT_GPU_WINDOWS_X64_ZIP: &str = "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-win-x64-gpu-1.22.0.zip";
 const ORT_GPU_WINDOWS_X64_ZIP_SHA256: &str =
     "5b5241716b2628c1ab5e79ee620be767531021149ee68f30fc46c16263fb94dd";
 const ORT_GPU_WINDOWS_X64_DLLS: &[(&str, &str, &str)] = &[
@@ -94,7 +93,9 @@ fn ensure_windows_gpu_runtime(dest_dir: &Path) -> Result<(), Box<dyn std::error:
     }
 
     if all_valid {
-        println!("cargo:warning=ONNX Runtime CUDA libraries already exist and are valid. Skipping download.");
+        println!(
+            "cargo:warning=ONNX Runtime CUDA libraries already exist and are valid. Skipping download."
+        );
         return Ok(());
     }
 
@@ -161,7 +162,10 @@ fn main() {
         let dest_dir = manifest_dir.join("resources");
         fs::create_dir_all(&dest_dir).unwrap();
         if let Err(e) = ensure_windows_gpu_runtime(&dest_dir) {
-            panic!("Failed to download and verify ONNX Runtime CUDA libraries: {}", e);
+            panic!(
+                "Failed to download and verify ONNX Runtime CUDA libraries: {}",
+                e
+            );
         }
         println!("cargo:rerun-if-changed=build.rs");
         tauri_build::build();

@@ -520,7 +520,9 @@ pub async fn invoke_generative_replace_with_mask_def(
             .map_err(|e| e.to_string())?
     } else if ai_provider == "ai-connector" {
         let Some(address) = settings.ai_connector_address else {
-            return Err("AI Connector is selected, but no connector address is configured.".to_string());
+            return Err(
+                "AI Connector is selected, but no connector address is configured.".to_string(),
+            );
         };
         let mut rgba_mask = RgbaImage::new(img_w, img_h);
         for (x, y, luma_pixel) in mask_bitmap.enumerate_pixels() {
@@ -543,7 +545,9 @@ pub async fn invoke_generative_replace_with_mask_def(
         .map_err(|e| e.to_string())?
     } else if ai_provider == "cloud" {
         let Some(auth_token) = token else {
-            return Err("Cloud AI is selected, but no cloud authentication token is available.".to_string());
+            return Err(
+                "Cloud AI is selected, but no cloud authentication token is available.".to_string(),
+            );
         };
         let client = reqwest::Client::new();
         let api_url = "https://api.letshopeitcompiles.com/inpaint";
