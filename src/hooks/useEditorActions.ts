@@ -6,7 +6,13 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useProcessStore } from '../store/useProcessStore';
-import { Adjustments, INITIAL_ADJUSTMENTS, COPYABLE_ADJUSTMENT_KEYS, PasteMode } from '../utils/adjustments';
+import {
+  Adjustments,
+  INITIAL_ADJUSTMENTS,
+  COPYABLE_ADJUSTMENT_KEYS,
+  PasteMode,
+  normalizeLoadedAdjustments,
+} from '../utils/adjustments';
 import { calculateCenteredCrop } from '../utils/cropUtils';
 import { Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
@@ -21,6 +27,24 @@ export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustme
     toast.error(`Failed to save changes: ${err}`);
   });
 }, 300);
+
+const cloneCopyableAdjustments = (sourceAdjustments: Adjustments): Partial<Adjustments> => {
+  const adjustmentsToCopy: Partial<Adjustments> = {};
+
+  for (const key of COPYABLE_ADJUSTMENT_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(sourceAdjustments, key)) {
+      adjustmentsToCopy[key as keyof Adjustments] = structuredClone(sourceAdjustments[key as keyof Adjustments]);
+    }
+  }
+
+  return adjustmentsToCopy;
+};
+
+const hasAdjustmentPayload = (value: unknown): value is Adjustments => {
+  if (!value) return false;
+  if (typeof value !== 'object') return false;
+  return !('is_null' in value && (value as { is_null?: boolean }).is_null);
+};
 
 export function useEditorActions() {
   const setEditor = useEditorStore((s) => s.setEditor);
@@ -80,7 +104,7 @@ export function useEditorActions() {
       const isAndroid = useSettingsStore.getState().osPlatform === 'android';
       try {
         const result: { size: number } = await invoke('load_and_parse_lut', { path });
-        let name = isAndroid
+        const name = isAndroid
           ? await invoke<string>('resolve_android_content_uri_name', { uriStr: path })
           : path.split(/[\\/]/).pop() || 'LUT';
         setAdjustments((prev: Adjustments) => ({
@@ -125,19 +149,37 @@ export function useEditorActions() {
     [setEditor],
   );
 
-  const handleCopyAdjustments = useCallback(() => {
+  const handleCopyAdjustments = useCallback(async (sourcePath?: string) => {
     const { selectedImage, adjustments } = useEditorStore.getState();
-    const { libraryActiveAdjustments } = useLibraryStore.getState();
-    const sourceAdjustments = selectedImage ? adjustments : libraryActiveAdjustments;
-    const adjustmentsToCopy: any = {};
+    const { libraryActivePath, multiSelectedPaths, setLibrary } = useLibraryStore.getState();
+    const targetPath =
+      sourcePath ??
+      selectedImage?.path ??
+      libraryActivePath ??
+      (multiSelectedPaths.length === 1 ? multiSelectedPaths[0] : null);
 
-    for (const key of COPYABLE_ADJUSTMENT_KEYS) {
-      if (Object.prototype.hasOwnProperty.call(sourceAdjustments, key)) {
-        adjustmentsToCopy[key] = structuredClone(sourceAdjustments[key]);
+    try {
+      let sourceAdjustments: Adjustments;
+
+      if (selectedImage && targetPath === selectedImage.path) {
+        sourceAdjustments = adjustments;
+      } else if (targetPath) {
+        const metadata = await invoke<{ adjustments?: unknown }>(Invokes.LoadMetadata, { path: targetPath });
+        sourceAdjustments = hasAdjustmentPayload(metadata.adjustments)
+          ? normalizeLoadedAdjustments(metadata.adjustments)
+          : { ...INITIAL_ADJUSTMENTS };
+        setLibrary({ libraryActiveAdjustments: sourceAdjustments });
+      } else {
+        sourceAdjustments = useLibraryStore.getState().libraryActiveAdjustments;
       }
+
+      useEditorStore
+        .getState()
+        .setEditor({ copiedAdjustments: cloneCopyableAdjustments(sourceAdjustments) as Adjustments });
+      useProcessStore.getState().setProcess({ isCopied: true });
+    } catch (err) {
+      toast.error(`Failed to copy adjustments: ${err}`);
     }
-    useEditorStore.getState().setEditor({ copiedAdjustments: adjustmentsToCopy });
-    useProcessStore.getState().setProcess({ isCopied: true });
   }, []);
 
   const handlePasteAdjustments = useCallback(
