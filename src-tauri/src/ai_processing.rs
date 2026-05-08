@@ -2,7 +2,9 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
+use std::thread;
+use std::time::Duration;
 
 use anyhow::Result;
 use image::imageops::{self, FilterType};
@@ -57,6 +59,7 @@ const CUDA_DOWNLOAD_URL: &str = "https://developer.nvidia.com/cuda-downloads";
 const CUDNN_DOWNLOAD_URL: &str = "https://developer.nvidia.com/cudnn-downloads";
 const CUDNN_WINDOWS_INSTALL_GUIDE_URL: &str =
     "https://docs.nvidia.com/deeplearning/cudnn/installation/latest/windows.html";
+const NVIDIA_SMI_TIMEOUT: Duration = Duration::from_millis(1500);
 
 const DEPTH_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/depth_anything_v2_vits.onnx?download=true";
 const DEPTH_FILENAME: &str = "depth_anything_v2_vits.onnx";
@@ -327,32 +330,38 @@ fn find_local_ai_model_spec(model_id: &str) -> Result<&'static LocalAiModelSpec>
         .ok_or_else(|| anyhow::anyhow!("Unknown local AI model: {}", model_id))
 }
 
+fn default_gpu_info() -> LocalAiGpuInfo {
+    LocalAiGpuInfo {
+        name: None,
+        driver_version: None,
+        vram_mb: None,
+        compute_capability: None,
+        is_nvidia: false,
+    }
+}
+
 fn query_nvidia_gpu() -> LocalAiGpuInfo {
-    let output = Command::new("nvidia-smi")
-        .args([
-            "--query-gpu=name,driver_version,memory.total,compute_cap",
-            "--format=csv,noheader,nounits",
-        ])
-        .output();
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let output = Command::new("nvidia-smi")
+            .args([
+                "--query-gpu=name,driver_version,memory.total,compute_cap",
+                "--format=csv,noheader,nounits",
+            ])
+            .output();
+        let _ = tx.send(output);
+    });
+
+    let Ok(output) = rx.recv_timeout(NVIDIA_SMI_TIMEOUT) else {
+        return default_gpu_info();
+    };
 
     let Ok(output) = output else {
-        return LocalAiGpuInfo {
-            name: None,
-            driver_version: None,
-            vram_mb: None,
-            compute_capability: None,
-            is_nvidia: false,
-        };
+        return default_gpu_info();
     };
 
     if !output.status.success() {
-        return LocalAiGpuInfo {
-            name: None,
-            driver_version: None,
-            vram_mb: None,
-            compute_capability: None,
-            is_nvidia: false,
-        };
+        return default_gpu_info();
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -400,7 +409,11 @@ fn check_model_dir_writable(models_dir: &Path) -> (bool, Option<String>) {
     }
 }
 
-fn model_info_for_spec(models_dir: &Path, spec: &LocalAiModelSpec) -> Result<LocalAiModelInfo> {
+fn model_info_for_spec(
+    models_dir: &Path,
+    spec: &LocalAiModelSpec,
+    verify_hash: bool,
+) -> Result<LocalAiModelInfo> {
     let path = models_dir.join(spec.filename);
     let installed = path.exists();
     let size_bytes = if installed {
@@ -408,10 +421,10 @@ fn model_info_for_spec(models_dir: &Path, spec: &LocalAiModelSpec) -> Result<Loc
     } else {
         0
     };
-    let valid = if installed {
+    let valid = if installed && verify_hash {
         verify_sha256(&path, spec.sha256).unwrap_or(false)
     } else {
-        false
+        installed
     };
 
     Ok(LocalAiModelInfo {
@@ -826,20 +839,41 @@ fn probe_cuda_execution_provider(
     }
 }
 
-pub fn get_local_ai_status(app_handle: &tauri::AppHandle) -> Result<LocalAiStatus> {
+pub fn get_local_ai_status(
+    app_handle: &tauri::AppHandle,
+    probe_runtime: bool,
+) -> Result<LocalAiStatus> {
     let models_dir = get_models_dir(app_handle)?;
     let gpu = query_nvidia_gpu();
     let (model_dir_writable, model_dir_error) = check_model_dir_writable(&models_dir);
     let models = LOCAL_AI_MODEL_SPECS
         .iter()
-        .map(|spec| model_info_for_spec(&models_dir, spec))
+        .map(|spec| model_info_for_spec(&models_dir, spec, probe_runtime))
         .collect::<Result<Vec<_>>>()?;
     let (
         cuda_provider_available,
         cuda_provider_error,
         runtime_dependencies,
         missing_runtime_dependencies,
-    ) = probe_cuda_execution_provider(app_handle);
+    ) = if probe_runtime {
+        probe_cuda_execution_provider(app_handle)
+    } else {
+        let (runtime_dependencies, missing_runtime_dependencies, found_dirs) =
+            inspect_runtime_dependencies(app_handle);
+        prepend_runtime_dirs_to_path(&found_dirs);
+        (
+            false,
+            if missing_runtime_dependencies.is_empty() {
+                None
+            } else {
+                Some(missing_runtime_dependency_help(
+                    &missing_runtime_dependencies,
+                ))
+            },
+            runtime_dependencies,
+            missing_runtime_dependencies,
+        )
+    };
 
     Ok(LocalAiStatus {
         is_windows: cfg!(target_os = "windows"),
@@ -882,7 +916,7 @@ pub async fn download_local_ai_model(
     )
     .await?;
 
-    model_info_for_spec(&models_dir, spec)
+    model_info_for_spec(&models_dir, spec, true)
 }
 
 pub fn delete_local_ai_model(
@@ -904,7 +938,7 @@ pub fn delete_local_ai_model(
         fs::remove_file(&canonical_model)?;
     }
 
-    model_info_for_spec(&models_dir, spec)
+    model_info_for_spec(&models_dir, spec, true)
 }
 
 pub async fn run_local_ai_self_test(

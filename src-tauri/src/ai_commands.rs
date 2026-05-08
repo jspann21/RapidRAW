@@ -408,9 +408,11 @@ pub async fn test_ai_connector_connection(address: String) -> Result<(), String>
 
 #[tauri::command]
 pub fn get_local_ai_status(
+    probe_runtime: Option<bool>,
     app_handle: tauri::AppHandle,
 ) -> Result<ai_processing::LocalAiStatus, String> {
-    ai_processing::get_local_ai_status(&app_handle).map_err(|e| e.to_string())
+    ai_processing::get_local_ai_status(&app_handle, probe_runtime.unwrap_or(false))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

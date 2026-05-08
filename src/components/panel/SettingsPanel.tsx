@@ -637,9 +637,9 @@ export default function SettingsPanel({
     onSettingsChange({ ...appSettings, aiProvider: provider });
   };
 
-  const refreshLocalAiStatus = async () => {
+  const refreshLocalAiStatus = async (probeRuntime = false) => {
     try {
-      const status = await invoke<LocalAiStatus>(Invokes.GetLocalAiStatus);
+      const status = await invoke<LocalAiStatus>(Invokes.GetLocalAiStatus, { probeRuntime });
       setLocalAiStatus(status);
       setLocalAiMessage('');
     } catch (err: unknown) {
@@ -649,7 +649,7 @@ export default function SettingsPanel({
 
   useEffect(() => {
     if (aiProvider === 'local-gpu') {
-      refreshLocalAiStatus();
+      refreshLocalAiStatus(false);
     }
   }, [aiProvider]);
 
@@ -672,7 +672,7 @@ export default function SettingsPanel({
     try {
       await invoke(Invokes.DownloadLocalAiModel, { modelId: 'lama-inpainting' });
       setLocalAiMessage('Model downloaded and verified.');
-      await refreshLocalAiStatus();
+      await refreshLocalAiStatus(true);
     } catch (err: unknown) {
       setLocalAiMessage(`Download failed: ${err}`);
     } finally {
@@ -688,7 +688,7 @@ export default function SettingsPanel({
     try {
       await invoke(Invokes.DeleteLocalAiModel, { modelId: 'lama-inpainting' });
       setLocalAiMessage('Model deleted.');
-      await refreshLocalAiStatus();
+      await refreshLocalAiStatus(false);
     } catch (err: unknown) {
       setLocalAiMessage(`Delete failed: ${err}`);
     } finally {
@@ -703,7 +703,7 @@ export default function SettingsPanel({
     try {
       const result = await invoke<string>(Invokes.RunLocalAiSelfTest);
       setLocalAiMessage(result);
-      await refreshLocalAiStatus();
+      await refreshLocalAiStatus(true);
     } catch (err: unknown) {
       setLocalAiMessage(`Self-test failed: ${err}`);
     } finally {
@@ -717,7 +717,7 @@ export default function SettingsPanel({
       localAiCudaRuntimePath: localAiCudaRuntimePath.trim() || undefined,
       localAiCudnnRuntimePath: localAiCudnnRuntimePath.trim() || undefined,
     });
-    await refreshLocalAiStatus();
+    await refreshLocalAiStatus(true);
   };
 
   const handlePreviewModeChange = (mode: 'static' | 'dynamic') => {
@@ -2145,7 +2145,7 @@ export default function SettingsPanel({
                                 <Button
                                   className="bg-surface"
                                   disabled={isLocalAiBusy}
-                                  onClick={refreshLocalAiStatus}
+                                  onClick={() => refreshLocalAiStatus(true)}
                                 >
                                   <RefreshCw size={16} />
                                   Refresh
@@ -2305,7 +2305,7 @@ export default function SettingsPanel({
                                   <Button
                                     className="bg-surface"
                                     disabled={isLocalAiBusy}
-                                    onClick={refreshLocalAiStatus}
+                                    onClick={() => refreshLocalAiStatus(false)}
                                   >
                                     <RefreshCw size={16} />
                                     Refresh
