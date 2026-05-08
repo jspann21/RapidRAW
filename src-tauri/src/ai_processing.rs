@@ -53,6 +53,10 @@ pub const LAMA_URL: &str =
     "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/lama_fp16.onnx?download=true";
 pub const LAMA_FILENAME: &str = "lama_fp16.onnx";
 pub const LAMA_SHA256: &str = "2d6be6277c400d6f1b91819737f7c3da935e5c63d1b521d393be1196a2bfa82c";
+const CUDA_DOWNLOAD_URL: &str = "https://developer.nvidia.com/cuda-downloads";
+const CUDNN_DOWNLOAD_URL: &str = "https://developer.nvidia.com/cudnn-downloads";
+const CUDNN_WINDOWS_INSTALL_GUIDE_URL: &str =
+    "https://docs.nvidia.com/deeplearning/cudnn/installation/latest/windows.html";
 
 const DEPTH_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/depth_anything_v2_vits.onnx?download=true";
 const DEPTH_FILENAME: &str = "depth_anything_v2_vits.onnx";
@@ -644,6 +648,30 @@ fn prepare_cuda_runtime(
     (dependencies, missing)
 }
 
+fn missing_runtime_dependency_help(missing: &[String]) -> String {
+    let has_cuda = missing.iter().any(|name| {
+        let lower = name.to_ascii_lowercase();
+        lower.contains("cuda") || lower.contains("cublas")
+    });
+    let has_cudnn = missing
+        .iter()
+        .any(|name| name.to_ascii_lowercase().contains("cudnn"));
+    let mut help = Vec::new();
+
+    if has_cuda {
+        help.push(format!(
+            "Install NVIDIA CUDA Toolkit 12.x from {CUDA_DOWNLOAD_URL}, then set the CUDA bin folder to a path like C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.x\\bin."
+        ));
+    }
+    if has_cudnn {
+        help.push(format!(
+            "Install NVIDIA cuDNN 9 for Windows from {CUDNN_DOWNLOAD_URL} or follow {CUDNN_WINDOWS_INSTALL_GUIDE_URL}, then set the cuDNN 9 bin folder to the folder containing cudnn64_9.dll, usually C:\\Program Files\\NVIDIA\\CUDNN\\v9.x\\bin."
+        ));
+    }
+
+    help.join(" ")
+}
+
 async fn download_and_verify_model(
     app_handle: &tauri::AppHandle,
     models_dir: &Path,
@@ -711,11 +739,13 @@ fn probe_cuda_execution_provider(
 
     let (runtime_dependencies, missing_runtime_dependencies) = prepare_cuda_runtime(app_handle);
     if !missing_runtime_dependencies.is_empty() {
+        let help = missing_runtime_dependency_help(&missing_runtime_dependencies);
         return (
             false,
             Some(format!(
-                "Missing CUDA runtime dependencies: {}. Install CUDA 12.x and cuDNN 9, or set their bin folders below.",
-                missing_runtime_dependencies.join(", ")
+                "Missing CUDA runtime dependencies: {}. {}",
+                missing_runtime_dependencies.join(", "),
+                help
             )),
             runtime_dependencies,
             missing_runtime_dependencies,
@@ -1206,9 +1236,11 @@ pub async fn get_or_init_lama_cuda_model(
     let models_dir = get_models_dir(app_handle)?;
     let (_, missing_runtime_dependencies) = prepare_cuda_runtime(app_handle);
     if !missing_runtime_dependencies.is_empty() {
+        let help = missing_runtime_dependency_help(&missing_runtime_dependencies);
         return Err(anyhow::anyhow!(
-            "Missing CUDA runtime dependencies: {}. Install CUDA 12.x and cuDNN 9, or configure their bin folders in Settings.",
-            missing_runtime_dependencies.join(", ")
+            "Missing CUDA runtime dependencies: {}. {}",
+            missing_runtime_dependencies.join(", "),
+            help
         ));
     }
 

@@ -337,6 +337,12 @@ const aiProviders = [
   { id: 'cloud', label: 'Cloud', icon: Cloud },
 ];
 
+const CUDA_DOWNLOAD_URL = 'https://developer.nvidia.com/cuda-downloads';
+const CUDNN_DOWNLOAD_URL = 'https://developer.nvidia.com/cudnn-downloads';
+const CUDNN_WINDOWS_INSTALL_GUIDE_URL =
+  'https://docs.nvidia.com/deeplearning/cudnn/installation/latest/windows.html';
+const NVIDIA_DRIVER_DOWNLOAD_URL = 'https://www.nvidia.com/Download/index.aspx';
+
 interface AiProviderSwitchProps {
   selectedProvider: string;
   onProviderChange: (provider: string) => void;
@@ -957,6 +963,14 @@ export default function SettingsPanel({
   }, [appSettings?.keybinds]);
 
   const localAiModel = localAiStatus?.models.find((model) => model.id === 'lama-inpainting');
+  const missingLocalAiRuntimeDependencies = localAiStatus?.missingRuntimeDependencies || [];
+  const missingCudaRuntime = missingLocalAiRuntimeDependencies.some((dependency) => {
+    const lower = dependency.toLowerCase();
+    return lower.includes('cuda') || lower.includes('cublas');
+  });
+  const missingCudnnRuntime = missingLocalAiRuntimeDependencies.some((dependency) =>
+    dependency.toLowerCase().includes('cudnn'),
+  );
   const localAiReady =
     !!localAiStatus?.isWindows &&
     !!localAiStatus?.cudaAvailable &&
@@ -2161,6 +2175,55 @@ export default function SettingsPanel({
                                   Missing: {localAiStatus.missingRuntimeDependencies.join(', ')}
                                 </Text>
                               )}
+
+                              {!!missingLocalAiRuntimeDependencies.length && (
+                                <div className="space-y-2 rounded-md border border-border-color bg-surface p-3">
+                                  <Text weight={TextWeights.semibold}>How to fix missing files</Text>
+                                  {missingCudaRuntime && (
+                                    <Text variant={TextVariants.small} className="block">
+                                      Install NVIDIA CUDA Toolkit 12.x for Windows from{' '}
+                                      <a
+                                        className="font-semibold text-accent hover:underline"
+                                        href={CUDA_DOWNLOAD_URL}
+                                        rel="noopener noreferrer"
+                                        target="_blank"
+                                      >
+                                        NVIDIA CUDA downloads
+                                      </a>
+                                      . Then set the CUDA bin folder above to something like{' '}
+                                      <span className="font-mono">
+                                        C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.x\bin
+                                      </span>
+                                      .
+                                    </Text>
+                                  )}
+                                  {missingCudnnRuntime && (
+                                    <Text variant={TextVariants.small} className="block">
+                                      Install NVIDIA cuDNN 9 for Windows from{' '}
+                                      <a
+                                        className="font-semibold text-accent hover:underline"
+                                        href={CUDNN_DOWNLOAD_URL}
+                                        rel="noopener noreferrer"
+                                        target="_blank"
+                                      >
+                                        NVIDIA cuDNN downloads
+                                      </a>
+                                      , or follow the{' '}
+                                      <a
+                                        className="font-semibold text-accent hover:underline"
+                                        href={CUDNN_WINDOWS_INSTALL_GUIDE_URL}
+                                        rel="noopener noreferrer"
+                                        target="_blank"
+                                      >
+                                        Windows cuDNN install guide
+                                      </a>
+                                      . Then set the cuDNN 9 bin folder above to the folder containing{' '}
+                                      <span className="font-mono">cudnn64_9.dll</span>, usually{' '}
+                                      <span className="font-mono">C:\Program Files\NVIDIA\CUDNN\v9.x\bin</span>.
+                                    </Text>
+                                  )}
+                                </div>
+                              )}
                             </div>
 
                             <div className="p-4 bg-bg-primary rounded-lg border border-border-color space-y-3">
@@ -2229,7 +2292,16 @@ export default function SettingsPanel({
                               )}
                               {localAiStatus && !localAiStatus.cudaAvailable && (
                                 <Text color={TextColors.error} className="block">
-                                  No NVIDIA CUDA GPU was detected.
+                                  No NVIDIA CUDA GPU was detected. Install or update the NVIDIA driver from{' '}
+                                  <a
+                                    className="font-semibold text-accent hover:underline"
+                                    href={NVIDIA_DRIVER_DOWNLOAD_URL}
+                                    rel="noopener noreferrer"
+                                    target="_blank"
+                                  >
+                                    NVIDIA Driver Downloads
+                                  </a>
+                                  , then restart RapidRAW.
                                 </Text>
                               )}
                               {localAiStatus?.cudaProviderError && (
