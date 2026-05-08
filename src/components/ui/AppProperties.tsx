@@ -152,6 +152,7 @@ export enum ThumbnailAspectRatio {
 
 export interface AppSettings {
   aiConnectorAddress?: string;
+  aiProvider?: string;
   decorations?: any;
   editorPreviewResolution?: number;
   enableZoomHifi?: boolean;

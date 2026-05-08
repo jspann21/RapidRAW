@@ -3,12 +3,17 @@ import {
   ArrowLeft,
   Cloud,
   Cpu,
+  Download,
   ExternalLink as ExternalLinkIcon,
+  HardDrive,
   Server,
   Info,
+  PlayCircle,
+  RefreshCw,
   Trash2,
   Wifi,
   WifiOff,
+  Zap,
   Plus,
   X,
   SlidersHorizontal,
@@ -96,6 +101,38 @@ interface TestStatus {
   testing: boolean;
 }
 
+interface LocalAiModelInfo {
+  id: string;
+  name: string;
+  filename: string;
+  fileType: string;
+  required: boolean;
+  installed: boolean;
+  valid: boolean;
+  sizeBytes: number;
+  sha256: string;
+}
+
+interface LocalAiStatus {
+  isWindows: boolean;
+  cudaAvailable: boolean;
+  cudaProviderAvailable: boolean;
+  cudaProviderError?: string | null;
+  modelDir: string;
+  modelDirWritable: boolean;
+  modelDirError?: string | null;
+  diskUsageBytes: number;
+  requiredFileTypes: string[];
+  gpu: {
+    name?: string | null;
+    driverVersion?: string | null;
+    vramMb?: number | null;
+    computeCapability?: string | null;
+    isNvidia: boolean;
+  };
+  models: LocalAiModelInfo[];
+}
+
 interface MyLens {
   maker: string;
   model: string;
@@ -134,6 +171,13 @@ const zoomMultiplierOptions: OptionItem<number>[] = [
   { value: 0.5, label: '0.50x (Half)' },
   { value: 0.25, label: '0.25x' },
 ];
+
+const formatBytes = (bytes: number) => {
+  if (!bytes) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+};
 
 const livePreviewQualityOptions: OptionItem<string>[] = [
   { value: 'full', label: 'Full Resolution' },
@@ -281,6 +325,7 @@ const DataActionItem = ({
 
 const aiProviders = [
   { id: 'cpu', label: 'CPU', icon: Cpu },
+  { id: 'local-gpu', label: 'Local GPU', icon: Zap },
   { id: 'ai-connector', label: 'AI Connector', icon: Server },
   { id: 'cloud', label: 'Cloud', icon: Cloud },
 ];
@@ -437,6 +482,9 @@ export default function SettingsPanel({
     title: '',
   });
   const [testStatus, setTestStatus] = useState<TestStatus>({ message: '', success: null, testing: false });
+  const [localAiStatus, setLocalAiStatus] = useState<LocalAiStatus | null>(null);
+  const [localAiMessage, setLocalAiMessage] = useState('');
+  const [isLocalAiBusy, setIsLocalAiBusy] = useState(false);
   const [hasInteractedWithLivePreview, setHasInteractedWithLivePreview] = useState(false);
   const [recordingAction, setRecordingAction] = useState<string | null>(null);
 
@@ -558,6 +606,64 @@ export default function SettingsPanel({
   const handleProviderChange = (provider: string) => {
     setAiProvider(provider);
     onSettingsChange({ ...appSettings, aiProvider: provider });
+  };
+
+  const refreshLocalAiStatus = async () => {
+    try {
+      const status = await invoke<LocalAiStatus>(Invokes.GetLocalAiStatus);
+      setLocalAiStatus(status);
+      setLocalAiMessage('');
+    } catch (err: any) {
+      setLocalAiMessage(`Status failed: ${err}`);
+    }
+  };
+
+  useEffect(() => {
+    if (aiProvider === 'local-gpu') {
+      refreshLocalAiStatus();
+    }
+  }, [aiProvider]);
+
+  const handleDownloadLocalAiModel = async () => {
+    setIsLocalAiBusy(true);
+    setLocalAiMessage('Downloading LaMa inpainting model...');
+    try {
+      await invoke(Invokes.DownloadLocalAiModel, { modelId: 'lama-inpainting' });
+      setLocalAiMessage('Model downloaded and verified.');
+      await refreshLocalAiStatus();
+    } catch (err: any) {
+      setLocalAiMessage(`Download failed: ${err}`);
+    } finally {
+      setIsLocalAiBusy(false);
+    }
+  };
+
+  const handleDeleteLocalAiModel = async () => {
+    setIsLocalAiBusy(true);
+    setLocalAiMessage('Deleting local model...');
+    try {
+      await invoke(Invokes.DeleteLocalAiModel, { modelId: 'lama-inpainting' });
+      setLocalAiMessage('Model deleted.');
+      await refreshLocalAiStatus();
+    } catch (err: any) {
+      setLocalAiMessage(`Delete failed: ${err}`);
+    } finally {
+      setIsLocalAiBusy(false);
+    }
+  };
+
+  const handleRunLocalAiSelfTest = async () => {
+    setIsLocalAiBusy(true);
+    setLocalAiMessage('Running CUDA self-test...');
+    try {
+      const result = await invoke<string>(Invokes.RunLocalAiSelfTest);
+      setLocalAiMessage(result);
+      await refreshLocalAiStatus();
+    } catch (err: any) {
+      setLocalAiMessage(`Self-test failed: ${err}`);
+    } finally {
+      setIsLocalAiBusy(false);
+    }
   };
 
   const handlePreviewModeChange = (mode: 'static' | 'dynamic') => {
@@ -825,6 +931,15 @@ export default function SettingsPanel({
     }
     return keys;
   }, [appSettings?.keybinds]);
+
+  const localAiModel = localAiStatus?.models.find((model) => model.id === 'lama-inpainting');
+  const localAiReady =
+    !!localAiStatus?.isWindows &&
+    !!localAiStatus?.cudaAvailable &&
+    !!localAiStatus?.cudaProviderAvailable &&
+    !!localAiStatus?.modelDirWritable &&
+    !!localAiModel?.installed &&
+    !!localAiModel?.valid;
 
   return (
     <>
@@ -1875,6 +1990,152 @@ export default function SettingsPanel({
                             <li>Automatic Image Tagging</li>
                             <li>Simple CPU-based Generative Replace</li>
                           </Text>
+                        </motion.div>
+                      )}
+
+                      {aiProvider === 'local-gpu' && (
+                        <motion.div
+                          key="local-gpu"
+                          initial={{ opacity: 0, x: 10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -10 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          <div className="space-y-6">
+                            <div>
+                              <Text variant={TextVariants.heading}>Local GPU (CUDA ONNX)</Text>
+                              <Text className="mt-1">
+                                Runs RapidRAW's built-in LaMa inpainting model on an NVIDIA CUDA GPU. This accelerates
+                                local inpainting and does not use the AI Connector's SDXL prompt workflow.
+                              </Text>
+                            </div>
+
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                              <div className="p-4 bg-bg-primary rounded-lg border border-border-color">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <Zap size={16} />
+                                  <Text weight={TextWeights.semibold}>GPU</Text>
+                                </div>
+                                <Text variant={TextVariants.small} className="block">
+                                  {localAiStatus?.gpu.name || 'No NVIDIA GPU detected'}
+                                </Text>
+                                <Text variant={TextVariants.small} className="block mt-1">
+                                  Driver: {localAiStatus?.gpu.driverVersion || 'Unknown'}
+                                </Text>
+                                <Text variant={TextVariants.small} className="block mt-1">
+                                  VRAM: {localAiStatus?.gpu.vramMb ? `${localAiStatus.gpu.vramMb} MB` : 'Unknown'}
+                                </Text>
+                                <Text variant={TextVariants.small} className="block mt-1">
+                                  Compute: {localAiStatus?.gpu.computeCapability || 'Unknown'}
+                                </Text>
+                              </div>
+
+                              <div className="p-4 bg-bg-primary rounded-lg border border-border-color">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <HardDrive size={16} />
+                                  <Text weight={TextWeights.semibold}>Model Storage</Text>
+                                </div>
+                                <Text variant={TextVariants.small} className="block break-all">
+                                  {localAiStatus?.modelDir || 'Loading...'}
+                                </Text>
+                                <Text variant={TextVariants.small} className="block mt-2">
+                                  Required file type: {localAiStatus?.requiredFileTypes.join(', ') || '.onnx'}
+                                </Text>
+                                <Text variant={TextVariants.small} className="block mt-1">
+                                  Disk usage: {formatBytes(localAiStatus?.diskUsageBytes || 0)}
+                                </Text>
+                              </div>
+                            </div>
+
+                            <div className="p-4 bg-bg-primary rounded-lg border border-border-color space-y-3">
+                              <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                  <Text weight={TextWeights.semibold}>
+                                    {localAiModel?.name || 'LaMa Inpainting'}
+                                  </Text>
+                                  <Text variant={TextVariants.small} className="block mt-1">
+                                    {localAiModel?.filename || 'lama_fp16.onnx'} ·{' '}
+                                    {localAiModel?.installed
+                                      ? localAiModel.valid
+                                        ? `Installed (${formatBytes(localAiModel.sizeBytes)})`
+                                        : 'Installed but failed hash verification'
+                                      : 'Not installed'}
+                                  </Text>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <Button
+                                    className="bg-surface"
+                                    disabled={isLocalAiBusy}
+                                    onClick={refreshLocalAiStatus}
+                                  >
+                                    <RefreshCw size={16} />
+                                    Refresh
+                                  </Button>
+                                  <Button
+                                    disabled={
+                                      isLocalAiBusy ||
+                                      !localAiStatus?.modelDirWritable ||
+                                      (!!localAiModel?.installed && localAiModel.valid)
+                                    }
+                                    onClick={handleDownloadLocalAiModel}
+                                  >
+                                    <Download size={16} />
+                                    Download
+                                  </Button>
+                                  <Button
+                                    className="bg-surface"
+                                    disabled={isLocalAiBusy || !localAiModel?.installed}
+                                    onClick={handleDeleteLocalAiModel}
+                                  >
+                                    <Trash2 size={16} />
+                                    Delete
+                                  </Button>
+                                  <Button disabled={isLocalAiBusy || !localAiReady} onClick={handleRunLocalAiSelfTest}>
+                                    <PlayCircle size={16} />
+                                    Run Test
+                                  </Button>
+                                </div>
+                              </div>
+
+                              <Text
+                                as="div"
+                                color={localAiReady ? TextColors.success : TextColors.info}
+                                className="flex items-center gap-2"
+                              >
+                                {localAiReady ? <Wifi size={16} /> : <Info size={16} />}
+                                {localAiReady ? 'Local GPU is ready.' : 'Complete the checks above before using CUDA.'}
+                              </Text>
+
+                              {localAiStatus && !localAiStatus.isWindows && (
+                                <Text color={TextColors.error} className="block">
+                                  Local GPU is currently enabled for Windows x64 only.
+                                </Text>
+                              )}
+                              {localAiStatus && !localAiStatus.cudaAvailable && (
+                                <Text color={TextColors.error} className="block">
+                                  No NVIDIA CUDA GPU was detected.
+                                </Text>
+                              )}
+                              {localAiStatus?.cudaProviderError && (
+                                <Text color={TextColors.error} className="block">
+                                  CUDA provider: {localAiStatus.cudaProviderError}
+                                </Text>
+                              )}
+                              {localAiStatus?.modelDirError && (
+                                <Text color={TextColors.error} className="block">
+                                  Model folder: {localAiStatus.modelDirError}
+                                </Text>
+                              )}
+                              {localAiMessage && (
+                                <Text
+                                  color={localAiMessage.includes('failed') ? TextColors.error : TextColors.accent}
+                                  className="block"
+                                >
+                                  {localAiMessage}
+                                </Text>
+                              )}
+                            </div>
+                          </div>
                         </motion.div>
                       )}
 
