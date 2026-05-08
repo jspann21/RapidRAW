@@ -147,6 +147,8 @@ interface LocalAiDownloadProgress {
   totalBytes?: number | null;
 }
 
+type LocalAiTask = 'runtime-refresh' | 'model-refresh' | 'download' | 'delete' | 'self-test' | 'save-runtime';
+
 interface MyLens {
   maker: string;
   model: string;
@@ -505,7 +507,7 @@ export default function SettingsPanel({
   const [localAiStatus, setLocalAiStatus] = useState<LocalAiStatus | null>(null);
   const [localAiMessage, setLocalAiMessage] = useState('');
   const [localAiDownloadProgress, setLocalAiDownloadProgress] = useState<LocalAiDownloadProgress | null>(null);
-  const [isLocalAiBusy, setIsLocalAiBusy] = useState(false);
+  const [localAiTask, setLocalAiTask] = useState<LocalAiTask | null>(null);
   const [localAiCudaRuntimePath, setLocalAiCudaRuntimePath] = useState(appSettings?.localAiCudaRuntimePath || '');
   const [localAiCudnnRuntimePath, setLocalAiCudnnRuntimePath] = useState(appSettings?.localAiCudnnRuntimePath || '');
   const [hasInteractedWithLivePreview, setHasInteractedWithLivePreview] = useState(false);
@@ -637,13 +639,21 @@ export default function SettingsPanel({
     onSettingsChange({ ...appSettings, aiProvider: provider });
   };
 
-  const refreshLocalAiStatus = async (probeRuntime = false) => {
+  const refreshLocalAiStatus = async (probeRuntime = false, task?: LocalAiTask) => {
+    if (task) {
+      setLocalAiTask(task);
+      setLocalAiMessage(probeRuntime ? 'Checking CUDA runtime and model...' : 'Refreshing local model status...');
+    }
     try {
       const status = await invoke<LocalAiStatus>(Invokes.GetLocalAiStatus, { probeRuntime });
       setLocalAiStatus(status);
       setLocalAiMessage('');
     } catch (err: unknown) {
       setLocalAiMessage(`Status failed: ${err}`);
+    } finally {
+      if (task) {
+        setLocalAiTask(null);
+      }
     }
   };
 
@@ -667,7 +677,7 @@ export default function SettingsPanel({
 
   const handleDownloadLocalAiModel = async () => {
     setLocalAiDownloadProgress({ modelName: 'LaMa Inpainting', downloadedBytes: 0, totalBytes: null });
-    setIsLocalAiBusy(true);
+    setLocalAiTask('download');
     setLocalAiMessage('Downloading LaMa inpainting model...');
     try {
       await invoke(Invokes.DownloadLocalAiModel, { modelId: 'lama-inpainting' });
@@ -676,14 +686,14 @@ export default function SettingsPanel({
     } catch (err: unknown) {
       setLocalAiMessage(`Download failed: ${err}`);
     } finally {
-      setIsLocalAiBusy(false);
+      setLocalAiTask(null);
       setLocalAiDownloadProgress(null);
     }
   };
 
   const handleDeleteLocalAiModel = async () => {
     setLocalAiDownloadProgress(null);
-    setIsLocalAiBusy(true);
+    setLocalAiTask('delete');
     setLocalAiMessage('Deleting local model...');
     try {
       await invoke(Invokes.DeleteLocalAiModel, { modelId: 'lama-inpainting' });
@@ -692,13 +702,13 @@ export default function SettingsPanel({
     } catch (err: unknown) {
       setLocalAiMessage(`Delete failed: ${err}`);
     } finally {
-      setIsLocalAiBusy(false);
+      setLocalAiTask(null);
     }
   };
 
   const handleRunLocalAiSelfTest = async () => {
     setLocalAiDownloadProgress(null);
-    setIsLocalAiBusy(true);
+    setLocalAiTask('self-test');
     setLocalAiMessage('Running CUDA self-test...');
     try {
       const result = await invoke<string>(Invokes.RunLocalAiSelfTest);
@@ -707,17 +717,25 @@ export default function SettingsPanel({
     } catch (err: unknown) {
       setLocalAiMessage(`Self-test failed: ${err}`);
     } finally {
-      setIsLocalAiBusy(false);
+      setLocalAiTask(null);
     }
   };
 
   const handleLocalAiRuntimePathSave = async () => {
-    await onSettingsChange({
-      ...appSettings,
-      localAiCudaRuntimePath: localAiCudaRuntimePath.trim() || undefined,
-      localAiCudnnRuntimePath: localAiCudnnRuntimePath.trim() || undefined,
-    });
-    await refreshLocalAiStatus(true);
+    setLocalAiTask('save-runtime');
+    setLocalAiMessage('Saving CUDA runtime paths...');
+    try {
+      await onSettingsChange({
+        ...appSettings,
+        localAiCudaRuntimePath: localAiCudaRuntimePath.trim() || undefined,
+        localAiCudnnRuntimePath: localAiCudnnRuntimePath.trim() || undefined,
+      });
+      await refreshLocalAiStatus(true);
+    } catch (err: unknown) {
+      setLocalAiMessage(`Save failed: ${err}`);
+    } finally {
+      setLocalAiTask(null);
+    }
   };
 
   const handlePreviewModeChange = (mode: 'static' | 'dynamic') => {
@@ -997,6 +1015,21 @@ export default function SettingsPanel({
       : localAiDownloadProgress
         ? `Downloading ${formatBytes(localAiDownloadProgress.downloadedBytes)}`
         : '';
+  const isLocalAiBusy = localAiTask !== null;
+  const localAiTaskLabel =
+    localAiTask === 'runtime-refresh'
+      ? 'Checking CUDA runtime...'
+      : localAiTask === 'model-refresh'
+        ? 'Refreshing model status...'
+        : localAiTask === 'delete'
+          ? 'Deleting local model...'
+          : localAiTask === 'self-test'
+            ? 'Running CUDA self-test...'
+            : localAiTask === 'save-runtime'
+              ? 'Saving runtime paths...'
+              : '';
+  const secondaryLocalAiButtonClass =
+    'bg-surface text-text-primary border border-border-color hover:bg-bg-primary disabled:text-text-secondary';
   const localAiRuntimeDependencies = localAiStatus?.runtimeDependencies || [];
   const missingLocalAiRuntimeDependencies = localAiStatus?.missingRuntimeDependencies || [];
   const missingCudaRuntime = missingLocalAiRuntimeDependencies.some((dependency) => {
@@ -2143,12 +2176,15 @@ export default function SettingsPanel({
                                   </Text>
                                 </div>
                                 <Button
-                                  className="bg-surface"
+                                  className={secondaryLocalAiButtonClass}
                                   disabled={isLocalAiBusy}
-                                  onClick={() => refreshLocalAiStatus(true)}
+                                  onClick={() => refreshLocalAiStatus(true, 'runtime-refresh')}
                                 >
-                                  <RefreshCw size={16} />
-                                  Refresh
+                                  <RefreshCw
+                                    size={16}
+                                    className={localAiTask === 'runtime-refresh' ? 'animate-spin' : ''}
+                                  />
+                                  {localAiTask === 'runtime-refresh' ? 'Checking...' : 'Refresh'}
                                 </Button>
                               </div>
 
@@ -2275,12 +2311,15 @@ export default function SettingsPanel({
                                     </div>
                                   )}
                                   <Button
-                                    className="bg-bg-primary"
+                                    className={secondaryLocalAiButtonClass}
                                     disabled={isLocalAiBusy}
                                     onClick={handleLocalAiRuntimePathSave}
                                   >
-                                    <RefreshCw size={16} />
-                                    Save Paths & Refresh
+                                    <RefreshCw
+                                      size={16}
+                                      className={localAiTask === 'save-runtime' ? 'animate-spin' : ''}
+                                    />
+                                    {localAiTask === 'save-runtime' ? 'Saving...' : 'Save Paths'}
                                   </Button>
                                 </div>
                               </details>
@@ -2303,12 +2342,15 @@ export default function SettingsPanel({
                                 </div>
                                 <div className="flex flex-wrap gap-2">
                                   <Button
-                                    className="bg-surface"
+                                    className={secondaryLocalAiButtonClass}
                                     disabled={isLocalAiBusy}
-                                    onClick={() => refreshLocalAiStatus(false)}
+                                    onClick={() => refreshLocalAiStatus(true, 'model-refresh')}
                                   >
-                                    <RefreshCw size={16} />
-                                    Refresh
+                                    <RefreshCw
+                                      size={16}
+                                      className={localAiTask === 'model-refresh' ? 'animate-spin' : ''}
+                                    />
+                                    {localAiTask === 'model-refresh' ? 'Refreshing...' : 'Refresh'}
                                   </Button>
                                   <Button
                                     disabled={
@@ -2318,7 +2360,10 @@ export default function SettingsPanel({
                                     }
                                     onClick={handleDownloadLocalAiModel}
                                   >
-                                    <Download size={16} />
+                                    <Download
+                                      size={16}
+                                      className={localAiTask === 'download' && !localAiDownloadProgress ? 'animate-pulse' : ''}
+                                    />
                                     {localAiDownloadPercent === null
                                       ? localAiDownloadProgress
                                         ? 'Downloading'
@@ -2326,16 +2371,19 @@ export default function SettingsPanel({
                                       : `Downloading ${localAiDownloadPercent}%`}
                                   </Button>
                                   <Button
-                                    className="bg-surface"
+                                    className={secondaryLocalAiButtonClass}
                                     disabled={isLocalAiBusy || !localAiModel?.installed}
                                     onClick={handleDeleteLocalAiModel}
                                   >
-                                    <Trash2 size={16} />
-                                    Delete
+                                    <Trash2 size={16} className={localAiTask === 'delete' ? 'animate-pulse' : ''} />
+                                    {localAiTask === 'delete' ? 'Deleting...' : 'Delete'}
                                   </Button>
                                   <Button disabled={isLocalAiBusy || !localAiReady} onClick={handleRunLocalAiSelfTest}>
-                                    <PlayCircle size={16} />
-                                    Run Test
+                                    <PlayCircle
+                                      size={16}
+                                      className={localAiTask === 'self-test' ? 'animate-pulse' : ''}
+                                    />
+                                    {localAiTask === 'self-test' ? 'Testing...' : 'Run Test'}
                                   </Button>
                                 </div>
                               </div>
@@ -2348,6 +2396,20 @@ export default function SettingsPanel({
                                 {localAiReady ? <Wifi size={16} /> : <Info size={16} />}
                                 {localAiReady ? 'Local GPU is ready.' : 'Complete the checks above before using CUDA.'}
                               </Text>
+
+                              {localAiTask && localAiTask !== 'download' && (
+                                <div className="space-y-2" aria-live="polite">
+                                  <div className="flex items-center gap-2">
+                                    <RefreshCw size={14} className="animate-spin text-accent" />
+                                    <Text variant={TextVariants.small} color={TextColors.accent}>
+                                      {localAiTaskLabel}
+                                    </Text>
+                                  </div>
+                                  <div className="h-2 overflow-hidden rounded-full bg-surface" role="progressbar">
+                                    <div className="h-full w-1/3 animate-pulse rounded-full bg-accent" />
+                                  </div>
+                                </div>
+                              )}
 
                               {localAiDownloadProgress && (
                                 <div className="space-y-2">
