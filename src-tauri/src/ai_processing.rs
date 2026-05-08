@@ -342,6 +342,14 @@ fn default_gpu_info() -> LocalAiGpuInfo {
     }
 }
 
+fn display_path(path: &Path) -> String {
+    let path = path.to_string_lossy();
+    path.strip_prefix(r"\\?\")
+        .or_else(|| path.strip_prefix(r"\??\"))
+        .unwrap_or(&path)
+        .to_string()
+}
+
 #[cfg(target_os = "windows")]
 fn nvidia_smi_command() -> Command {
     use std::os::windows::process::CommandExt;
@@ -689,7 +697,7 @@ fn inspect_runtime_dependencies(
                 name: name.to_string(),
                 kind: kind.to_string(),
                 found: true,
-                path: Some(path.to_string_lossy().to_string()),
+                path: Some(display_path(&path)),
             });
         } else {
             missing.push(name.to_string());
@@ -908,7 +916,7 @@ pub fn get_local_ai_status(
         cuda_available: gpu.is_nvidia,
         cuda_provider_available,
         cuda_provider_error,
-        model_dir: models_dir.to_string_lossy().to_string(),
+        model_dir: display_path(&models_dir),
         model_dir_writable,
         model_dir_error,
         disk_usage_bytes: model_dir_disk_usage(&models_dir),
