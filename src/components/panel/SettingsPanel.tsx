@@ -25,6 +25,7 @@ import {
   Touchpad,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -138,6 +139,12 @@ interface LocalAiStatus {
     isNvidia: boolean;
   };
   models: LocalAiModelInfo[];
+}
+
+interface LocalAiDownloadProgress {
+  modelName: string;
+  downloadedBytes: number;
+  totalBytes?: number | null;
 }
 
 interface MyLens {
@@ -497,6 +504,7 @@ export default function SettingsPanel({
   const [testStatus, setTestStatus] = useState<TestStatus>({ message: '', success: null, testing: false });
   const [localAiStatus, setLocalAiStatus] = useState<LocalAiStatus | null>(null);
   const [localAiMessage, setLocalAiMessage] = useState('');
+  const [localAiDownloadProgress, setLocalAiDownloadProgress] = useState<LocalAiDownloadProgress | null>(null);
   const [isLocalAiBusy, setIsLocalAiBusy] = useState(false);
   const [localAiCudaRuntimePath, setLocalAiCudaRuntimePath] = useState(appSettings?.localAiCudaRuntimePath || '');
   const [localAiCudnnRuntimePath, setLocalAiCudnnRuntimePath] = useState(appSettings?.localAiCudnnRuntimePath || '');
@@ -645,7 +653,20 @@ export default function SettingsPanel({
     }
   }, [aiProvider]);
 
+  useEffect(() => {
+    const unlisten = listen<LocalAiDownloadProgress>('ai-model-download-progress', (event) => {
+      if (event.payload?.modelName === 'LaMa Inpainting') {
+        setLocalAiDownloadProgress(event.payload);
+      }
+    });
+
+    return () => {
+      unlisten.then((cleanup) => cleanup());
+    };
+  }, []);
+
   const handleDownloadLocalAiModel = async () => {
+    setLocalAiDownloadProgress({ modelName: 'LaMa Inpainting', downloadedBytes: 0, totalBytes: null });
     setIsLocalAiBusy(true);
     setLocalAiMessage('Downloading LaMa inpainting model...');
     try {
@@ -656,10 +677,12 @@ export default function SettingsPanel({
       setLocalAiMessage(`Download failed: ${err}`);
     } finally {
       setIsLocalAiBusy(false);
+      setLocalAiDownloadProgress(null);
     }
   };
 
   const handleDeleteLocalAiModel = async () => {
+    setLocalAiDownloadProgress(null);
     setIsLocalAiBusy(true);
     setLocalAiMessage('Deleting local model...');
     try {
@@ -674,6 +697,7 @@ export default function SettingsPanel({
   };
 
   const handleRunLocalAiSelfTest = async () => {
+    setLocalAiDownloadProgress(null);
     setIsLocalAiBusy(true);
     setLocalAiMessage('Running CUDA self-test...');
     try {
@@ -963,6 +987,16 @@ export default function SettingsPanel({
   }, [appSettings?.keybinds]);
 
   const localAiModel = localAiStatus?.models.find((model) => model.id === 'lama-inpainting');
+  const localAiDownloadTotalBytes = localAiDownloadProgress?.totalBytes || 0;
+  const localAiDownloadPercent = localAiDownloadTotalBytes
+    ? Math.min(100, Math.round((localAiDownloadProgress!.downloadedBytes / localAiDownloadTotalBytes) * 100))
+    : null;
+  const localAiDownloadLabel =
+    localAiDownloadProgress && localAiDownloadTotalBytes
+      ? `Downloading ${formatBytes(localAiDownloadProgress.downloadedBytes)} of ${formatBytes(localAiDownloadTotalBytes)}`
+      : localAiDownloadProgress
+        ? `Downloading ${formatBytes(localAiDownloadProgress.downloadedBytes)}`
+        : '';
   const localAiRuntimeDependencies = localAiStatus?.runtimeDependencies || [];
   const missingLocalAiRuntimeDependencies = localAiStatus?.missingRuntimeDependencies || [];
   const missingCudaRuntime = missingLocalAiRuntimeDependencies.some((dependency) => {
@@ -2285,7 +2319,11 @@ export default function SettingsPanel({
                                     onClick={handleDownloadLocalAiModel}
                                   >
                                     <Download size={16} />
-                                    Download
+                                    {localAiDownloadPercent === null
+                                      ? localAiDownloadProgress
+                                        ? 'Downloading'
+                                        : 'Download'
+                                      : `Downloading ${localAiDownloadPercent}%`}
                                   </Button>
                                   <Button
                                     className="bg-surface"
@@ -2310,6 +2348,38 @@ export default function SettingsPanel({
                                 {localAiReady ? <Wifi size={16} /> : <Info size={16} />}
                                 {localAiReady ? 'Local GPU is ready.' : 'Complete the checks above before using CUDA.'}
                               </Text>
+
+                              {localAiDownloadProgress && (
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <Text variant={TextVariants.small} color={TextColors.accent}>
+                                      {localAiDownloadLabel}
+                                    </Text>
+                                    {localAiDownloadPercent !== null && (
+                                      <Text variant={TextVariants.small} color={TextColors.accent}>
+                                        {localAiDownloadPercent}%
+                                      </Text>
+                                    )}
+                                  </div>
+                                  <div
+                                    className="h-2 overflow-hidden rounded-full bg-surface"
+                                    role="progressbar"
+                                    aria-label="LaMa inpainting model download progress"
+                                    aria-valuemin={0}
+                                    aria-valuemax={100}
+                                    aria-valuenow={localAiDownloadPercent ?? undefined}
+                                  >
+                                    <div
+                                      className={clsx('h-full rounded-full bg-accent transition-all', {
+                                        'animate-pulse': localAiDownloadPercent === null,
+                                      })}
+                                      style={{
+                                        width: localAiDownloadPercent === null ? '35%' : `${localAiDownloadPercent}%`,
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              )}
 
                               {localAiStatus && !localAiStatus.isWindows && (
                                 <Text color={TextColors.error} className="block">

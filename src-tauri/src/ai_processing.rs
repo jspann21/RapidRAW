@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, Cursor};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -186,11 +186,54 @@ pub fn get_models_dir(_app_handle: &tauri::AppHandle) -> Result<PathBuf> {
     Ok(models_dir)
 }
 
-async fn download_model(url: &str, dest: &Path) -> Result<()> {
-    let response = reqwest::get(url).await?;
+async fn download_model(
+    app_handle: Option<&tauri::AppHandle>,
+    model_name: Option<&str>,
+    url: &str,
+    dest: &Path,
+) -> Result<()> {
+    let mut response = reqwest::get(url).await?.error_for_status()?;
+    let total_bytes = response.content_length();
     let mut file = fs::File::create(dest)?;
-    let mut content = Cursor::new(response.bytes().await?);
-    std::io::copy(&mut content, &mut file)?;
+    let mut downloaded_bytes = 0_u64;
+    let mut last_emitted_bytes = 0_u64;
+    let emit_step = total_bytes
+        .map(|total| (total / 100).max(512 * 1024))
+        .unwrap_or(1024 * 1024);
+
+    if let (Some(app_handle), Some(model_name)) = (app_handle, model_name) {
+        let _ = app_handle.emit(
+            "ai-model-download-progress",
+            serde_json::json!({
+                "modelName": model_name,
+                "downloadedBytes": 0_u64,
+                "totalBytes": total_bytes,
+            }),
+        );
+    }
+
+    while let Some(chunk) = response.chunk().await? {
+        file.write_all(&chunk)?;
+        downloaded_bytes += chunk.len() as u64;
+
+        if downloaded_bytes.saturating_sub(last_emitted_bytes) >= emit_step
+            || total_bytes.is_some_and(|total| downloaded_bytes >= total)
+        {
+            if let (Some(app_handle), Some(model_name)) = (app_handle, model_name) {
+                let _ = app_handle.emit(
+                    "ai-model-download-progress",
+                    serde_json::json!({
+                        "modelName": model_name,
+                        "downloadedBytes": downloaded_bytes,
+                        "totalBytes": total_bytes,
+                    }),
+                );
+            }
+            last_emitted_bytes = downloaded_bytes;
+        }
+    }
+
+    file.flush()?;
     Ok(())
 }
 
@@ -691,7 +734,11 @@ async fn download_and_verify_model(
             fs::remove_file(&dest_path)?;
         }
         let _ = app_handle.emit("ai-model-download-start", model_name);
-        download_model(url, &dest_path).await?;
+        if let Err(err) = download_model(Some(app_handle), Some(model_name), url, &dest_path).await
+        {
+            let _ = app_handle.emit("ai-model-download-finish", model_name);
+            return Err(err);
+        }
         let _ = app_handle.emit("ai-model-download-finish", model_name);
 
         if !verify_sha256(&dest_path, expected_hash)? {
@@ -1106,8 +1153,19 @@ pub async fn get_or_init_clip_models(
 
     let clip_tokenizer_path = models_dir.join(CLIP_TOKENIZER_FILENAME);
     if !clip_tokenizer_path.exists() {
-        let _ = app_handle.emit("ai-model-download-start", "CLIP Tokenizer");
-        download_model(CLIP_TOKENIZER_URL, &clip_tokenizer_path).await?;
+        let model_name = "CLIP Tokenizer";
+        let _ = app_handle.emit("ai-model-download-start", model_name);
+        if let Err(err) = download_model(
+            Some(app_handle),
+            Some(model_name),
+            CLIP_TOKENIZER_URL,
+            &clip_tokenizer_path,
+        )
+        .await
+        {
+            let _ = app_handle.emit("ai-model-download-finish", model_name);
+            return Err(err);
+        }
         let _ = app_handle.emit("ai-model-download-finish", "CLIP Tokenizer");
     }
 
