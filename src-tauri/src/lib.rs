@@ -2022,6 +2022,18 @@ pub fn run() {
                     };
                     let ort_library_path = resource_path.join(ort_library_name);
                     std::env::set_var("ORT_DYLIB_PATH", &ort_library_path);
+                    #[cfg(target_os = "windows")]
+                    {
+                        let current_path = std::env::var_os("PATH").unwrap_or_default();
+                        let mut paths =
+                            std::env::split_paths(&current_path).collect::<Vec<_>>();
+                        if !paths.iter().any(|path| path == &resource_path) {
+                            paths.insert(0, resource_path.clone());
+                            if let Ok(joined) = std::env::join_paths(paths) {
+                                std::env::set_var("PATH", joined);
+                            }
+                        }
+                    }
                     println!("Set ORT_DYLIB_PATH to: {}", ort_library_path.display());
                 }
             }

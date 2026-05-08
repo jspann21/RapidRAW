@@ -1,8 +1,30 @@
 use sha2::{Digest, Sha256};
 use std::env;
 use std::fs;
-use std::io;
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+
+const ORT_GPU_WINDOWS_X64_ZIP: &str =
+    "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-win-x64-gpu-1.22.0.zip";
+const ORT_GPU_WINDOWS_X64_ZIP_SHA256: &str =
+    "5b5241716b2628c1ab5e79ee620be767531021149ee68f30fc46c16263fb94dd";
+const ORT_GPU_WINDOWS_X64_DLLS: &[(&str, &str, &str)] = &[
+    (
+        "onnxruntime.dll",
+        "onnxruntime-win-x64-gpu-1.22.0/lib/onnxruntime.dll",
+        "8c934c01f34702f60de665273876dbe9f70fcbbe0f7e0f292840ac0c13daa338",
+    ),
+    (
+        "onnxruntime_providers_cuda.dll",
+        "onnxruntime-win-x64-gpu-1.22.0/lib/onnxruntime_providers_cuda.dll",
+        "0f32c09da925ec58c650a0d72ccc950a73db570cae0adeffb3d07165419b8bd1",
+    ),
+    (
+        "onnxruntime_providers_shared.dll",
+        "onnxruntime-win-x64-gpu-1.22.0/lib/onnxruntime_providers_shared.dll",
+        "3b53c353cd52a7be926beb289277b79de1e659a1dc3bb74b24c99a6a7296d9d9",
+    ),
+];
 
 fn verify_sha256(path: &Path, expected_hash: &str) -> Result<bool, io::Error> {
     let mut file = fs::File::open(path)?;
@@ -61,11 +83,90 @@ fn download_and_verify(
     }
 }
 
+fn ensure_windows_gpu_runtime(dest_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let mut all_valid = true;
+    for (dest_name, _, expected_hash) in ORT_GPU_WINDOWS_X64_DLLS {
+        let dest_path = dest_dir.join(dest_name);
+        if !dest_path.exists() || !verify_sha256(&dest_path, expected_hash)? {
+            all_valid = false;
+            break;
+        }
+    }
+
+    if all_valid {
+        println!("cargo:warning=ONNX Runtime CUDA libraries already exist and are valid. Skipping download.");
+        return Ok(());
+    }
+
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
+    let zip_path = out_dir.join("onnxruntime-win-x64-gpu-1.22.0.zip");
+
+    if !zip_path.exists() || !verify_sha256(&zip_path, ORT_GPU_WINDOWS_X64_ZIP_SHA256)? {
+        println!(
+            "cargo:warning=Downloading ONNX Runtime CUDA package: {}",
+            ORT_GPU_WINDOWS_X64_ZIP
+        );
+        let mut response = reqwest::blocking::get(ORT_GPU_WINDOWS_X64_ZIP)?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_body = response
+                .text()
+                .unwrap_or_else(|_| "Could not read error body".to_string());
+            return Err(format!("Download failed with status {}: {}", status, error_body).into());
+        }
+        let mut zip_file = fs::File::create(&zip_path)?;
+        response.copy_to(&mut zip_file)?;
+    }
+
+    if !verify_sha256(&zip_path, ORT_GPU_WINDOWS_X64_ZIP_SHA256)? {
+        fs::remove_file(&zip_path).ok();
+        return Err("ONNX Runtime CUDA package hash verification failed.".into());
+    }
+
+    let zip_file = fs::File::open(&zip_path)?;
+    let mut archive = zip::ZipArchive::new(zip_file)?;
+
+    for (dest_name, entry_name, expected_hash) in ORT_GPU_WINDOWS_X64_DLLS {
+        let dest_path = dest_dir.join(dest_name);
+        let temp_path = out_dir.join(dest_name);
+        let mut entry = archive.by_name(entry_name)?;
+        let mut output = fs::File::create(&temp_path)?;
+        let mut buffer = Vec::new();
+        entry.read_to_end(&mut buffer)?;
+        output.write_all(&buffer)?;
+
+        if !verify_sha256(&temp_path, expected_hash)? {
+            fs::remove_file(&temp_path).ok();
+            return Err(format!("Extracted {} failed hash verification.", dest_name).into());
+        }
+
+        fs::copy(&temp_path, &dest_path)?;
+        fs::remove_file(&temp_path).ok();
+        println!(
+            "cargo:warning=Extracted ONNX Runtime CUDA library {:?}.",
+            dest_path
+        );
+    }
+
+    Ok(())
+}
+
 fn main() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+
+    if target_os == "windows" && target_arch == "x86_64" {
+        let dest_dir = manifest_dir.join("resources");
+        fs::create_dir_all(&dest_dir).unwrap();
+        if let Err(e) = ensure_windows_gpu_runtime(&dest_dir) {
+            panic!("Failed to download and verify ONNX Runtime CUDA libraries: {}", e);
+        }
+        println!("cargo:rerun-if-changed=build.rs");
+        tauri_build::build();
+        return;
+    }
 
     let (download_filename, lib_name, expected_hash) =
         match (target_os.as_str(), target_arch.as_str()) {

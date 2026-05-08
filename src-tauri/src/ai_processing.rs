@@ -400,11 +400,35 @@ async fn download_and_verify_model(
     Ok(())
 }
 
+fn cuda_execution_provider() -> ort::execution_providers::ExecutionProviderDispatch {
+    ort::execution_providers::CUDAExecutionProvider::default()
+        .with_device_id(0)
+        .with_tf32(true)
+        .with_prefer_nhwc(true)
+        .with_conv_algorithm_search(ort::execution_providers::cuda::CuDNNConvAlgorithmSearch::Heuristic)
+        .build()
+        .error_on_failure()
+}
+
+fn cuda_session_builder() -> Result<ort::session::builder::SessionBuilder> {
+    Ok(Session::builder()?
+        .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
+        .with_execution_providers([cuda_execution_provider()])?)
+}
+
 fn probe_cuda_execution_provider() -> (bool, Option<String>) {
-    (
-        false,
-        Some("CUDA execution provider is not enabled in this build.".to_string()),
-    )
+    if !cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        return (
+            false,
+            Some("Local GPU is currently supported on Windows x64 only.".to_string()),
+        );
+    }
+
+    let _ = ort::init().with_name("AI-CUDA-Probe").commit();
+    match cuda_session_builder() {
+        Ok(_) => (true, None),
+        Err(e) => (false, Some(e.to_string())),
+    }
 }
 
 pub fn get_local_ai_status(app_handle: &tauri::AppHandle) -> Result<LocalAiStatus> {
@@ -482,13 +506,34 @@ pub fn delete_local_ai_model(
 }
 
 pub async fn run_local_ai_self_test(
-    _app_handle: &tauri::AppHandle,
-    _ai_state_mutex: &Mutex<Option<AiState>>,
-    _ai_init_lock: &TokioMutex<()>,
+    app_handle: &tauri::AppHandle,
+    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_init_lock: &TokioMutex<()>,
 ) -> Result<String> {
-    Err(anyhow::anyhow!(
-        "CUDA local GPU self-test is not enabled in this build."
-    ))
+    let lama_model = get_or_init_lama_cuda_model(app_handle, ai_state_mutex, ai_init_lock).await?;
+
+    let mut image = RgbaImage::new(64, 64);
+    for (x, y, pixel) in image.enumerate_pixels_mut() {
+        let value = if (x / 8 + y / 8) % 2 == 0 { 220 } else { 180 };
+        *pixel = Rgba([value, value, value, 255]);
+    }
+
+    let mut mask = GrayImage::new(64, 64);
+    for y in 24..40 {
+        for x in 24..40 {
+            mask.put_pixel(x, y, Luma([255]));
+        }
+    }
+
+    let source = DynamicImage::ImageRgba8(image);
+    let result = run_lama_inpainting(&source, &mask, &lama_model)?;
+    if result.dimensions() != (64, 64) {
+        return Err(anyhow::anyhow!(
+            "Local GPU self-test returned an unexpected image size."
+        ));
+    }
+
+    Ok("Local GPU CUDA inpainting self-test completed.".to_string())
 }
 
 pub async fn get_or_init_ai_models(
@@ -798,6 +843,73 @@ pub async fn get_or_init_lama_model(
     }
 
     Ok(lama_model)
+}
+
+pub async fn get_or_init_lama_cuda_model(
+    app_handle: &tauri::AppHandle,
+    ai_state_mutex: &Mutex<Option<AiState>>,
+    ai_init_lock: &TokioMutex<()>,
+) -> Result<Arc<Mutex<Session>>> {
+    if !cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        return Err(anyhow::anyhow!(
+            "Local GPU is currently supported on Windows x64 only."
+        ));
+    }
+
+    if let Some(lama_cuda_model) = ai_state_mutex
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|state| state.lama_cuda_model.clone())
+    {
+        return Ok(lama_cuda_model);
+    }
+
+    let _guard = ai_init_lock.lock().await;
+
+    if let Some(lama_cuda_model) = ai_state_mutex
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|state| state.lama_cuda_model.clone())
+    {
+        return Ok(lama_cuda_model);
+    }
+
+    let models_dir = get_models_dir(app_handle)?;
+    download_and_verify_model(
+        app_handle,
+        &models_dir,
+        LAMA_FILENAME,
+        LAMA_URL,
+        LAMA_SHA256,
+        "LaMa Inpainting",
+    )
+    .await?;
+
+    let _ = ort::init().with_name("AI-Inpainting-CUDA").commit();
+    let model_path = models_dir.join(LAMA_FILENAME);
+    let session = cuda_session_builder()?.commit_from_file(model_path)?;
+    let lama_cuda_model = Arc::new(Mutex::new(session));
+
+    crate::register_exit_handler();
+
+    let mut ai_state_lock = ai_state_mutex.lock().unwrap();
+    if let Some(state) = ai_state_lock.as_mut() {
+        state.lama_cuda_model = Some(lama_cuda_model.clone());
+    } else {
+        *ai_state_lock = Some(AiState {
+            models: None,
+            denoise_model: None,
+            clip_models: None,
+            lama_model: None,
+            lama_cuda_model: Some(lama_cuda_model.clone()),
+            embeddings: None,
+            depth_map: None,
+        });
+    }
+
+    Ok(lama_cuda_model)
 }
 
 #[derive(Clone, Copy)]
