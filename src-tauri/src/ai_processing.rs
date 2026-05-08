@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::{self, Cursor};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
@@ -14,7 +15,6 @@ use ort::value::Tensor;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::Emitter;
-use tauri::Manager;
 use tokenizers::Tokenizer;
 use tokio::sync::Mutex as TokioMutex;
 
@@ -48,10 +48,10 @@ const DENOISE_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/res
 const DENOISE_FILENAME: &str = "nind_denoise_utnet_684.onnx";
 const DENOISE_SHA256: &str = "ee3586279d514df557ff3f7dec6df37fafc51ba5d3a3435b2cc9ac2d9017e7fe";
 
-const LAMA_URL: &str =
+pub const LAMA_URL: &str =
     "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/lama_fp16.onnx?download=true";
-const LAMA_FILENAME: &str = "lama_fp16.onnx";
-const LAMA_SHA256: &str = "2d6be6277c400d6f1b91819737f7c3da935e5c63d1b521d393be1196a2bfa82c";
+pub const LAMA_FILENAME: &str = "lama_fp16.onnx";
+pub const LAMA_SHA256: &str = "2d6be6277c400d6f1b91819737f7c3da935e5c63d1b521d393be1196a2bfa82c";
 
 const DEPTH_URL: &str = "https://huggingface.co/CyberTimon/RapidRAW-Models/resolve/main/depth_anything_v2_vits.onnx?download=true";
 const DEPTH_FILENAME: &str = "depth_anything_v2_vits.onnx";
@@ -90,6 +90,7 @@ pub struct AiState {
     pub denoise_model: Option<Arc<Mutex<Session>>>,
     pub clip_models: Option<Arc<ClipModels>>,
     pub lama_model: Option<Arc<Mutex<Session>>>,
+    pub lama_cuda_model: Option<Arc<Mutex<Session>>>,
     pub embeddings: Option<ImageEmbeddings>,
     pub depth_map: Option<CachedDepthMap>,
 }
@@ -162,10 +163,20 @@ fn edt_2d(grid: &[bool], width: usize, height: usize) -> Vec<f32> {
     f.into_iter().map(|v| v.sqrt()).collect()
 }
 
-fn get_models_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf> {
-    let models_dir = app_handle.path().app_data_dir()?.join("models");
+pub fn get_models_dir(_app_handle: &tauri::AppHandle) -> Result<PathBuf> {
+    let exe_path = std::env::current_exe()?;
+    let install_dir = exe_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Could not resolve RapidRAW executable directory"))?;
+    let models_dir = install_dir.join("models");
     if !models_dir.exists() {
-        fs::create_dir_all(&models_dir)?;
+        fs::create_dir_all(&models_dir).map_err(|e| {
+            anyhow::anyhow!(
+                "Could not create install-folder model directory at {}: {}",
+                models_dir.display(),
+                e
+            )
+        })?;
     }
     Ok(models_dir)
 }
@@ -188,6 +199,175 @@ fn verify_sha256(path: &Path, expected_hash: &str) -> Result<bool> {
     let hash = hasher.finalize();
     let hex_hash = format!("{:x}", hash);
     Ok(hex_hash == expected_hash)
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalAiGpuInfo {
+    pub name: Option<String>,
+    pub driver_version: Option<String>,
+    pub vram_mb: Option<u64>,
+    pub compute_capability: Option<String>,
+    pub is_nvidia: bool,
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalAiModelInfo {
+    pub id: String,
+    pub name: String,
+    pub filename: String,
+    pub file_type: String,
+    pub required: bool,
+    pub installed: bool,
+    pub valid: bool,
+    pub size_bytes: u64,
+    pub sha256: String,
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalAiStatus {
+    pub is_windows: bool,
+    pub cuda_available: bool,
+    pub cuda_provider_available: bool,
+    pub cuda_provider_error: Option<String>,
+    pub model_dir: String,
+    pub model_dir_writable: bool,
+    pub model_dir_error: Option<String>,
+    pub disk_usage_bytes: u64,
+    pub required_file_types: Vec<String>,
+    pub gpu: LocalAiGpuInfo,
+    pub models: Vec<LocalAiModelInfo>,
+}
+
+struct LocalAiModelSpec {
+    id: &'static str,
+    name: &'static str,
+    filename: &'static str,
+    url: &'static str,
+    sha256: &'static str,
+    file_type: &'static str,
+    required: bool,
+}
+
+const LOCAL_AI_MODEL_SPECS: &[LocalAiModelSpec] = &[LocalAiModelSpec {
+    id: "lama-inpainting",
+    name: "LaMa Inpainting",
+    filename: LAMA_FILENAME,
+    url: LAMA_URL,
+    sha256: LAMA_SHA256,
+    file_type: ".onnx",
+    required: true,
+}];
+
+fn find_local_ai_model_spec(model_id: &str) -> Result<&'static LocalAiModelSpec> {
+    LOCAL_AI_MODEL_SPECS
+        .iter()
+        .find(|spec| spec.id == model_id)
+        .ok_or_else(|| anyhow::anyhow!("Unknown local AI model: {}", model_id))
+}
+
+fn query_nvidia_gpu() -> LocalAiGpuInfo {
+    let output = Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=name,driver_version,memory.total,compute_cap",
+            "--format=csv,noheader,nounits",
+        ])
+        .output();
+
+    let Ok(output) = output else {
+        return LocalAiGpuInfo {
+            name: None,
+            driver_version: None,
+            vram_mb: None,
+            compute_capability: None,
+            is_nvidia: false,
+        };
+    };
+
+    if !output.status.success() {
+        return LocalAiGpuInfo {
+            name: None,
+            driver_version: None,
+            vram_mb: None,
+            compute_capability: None,
+            is_nvidia: false,
+        };
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let first_line = stdout.lines().next().unwrap_or_default();
+    let mut parts = first_line.split(',').map(|part| part.trim());
+    let name = parts.next().filter(|value| !value.is_empty()).map(str::to_string);
+    let driver_version = parts.next().filter(|value| !value.is_empty()).map(str::to_string);
+    let vram_mb = parts
+        .next()
+        .and_then(|value| value.split_whitespace().next())
+        .and_then(|value| value.parse::<u64>().ok());
+    let compute_capability = parts.next().filter(|value| !value.is_empty()).map(str::to_string);
+    let is_nvidia = name
+        .as_deref()
+        .map(|value| value.to_ascii_lowercase().contains("nvidia"))
+        .unwrap_or(false);
+
+    LocalAiGpuInfo {
+        name,
+        driver_version,
+        vram_mb,
+        compute_capability,
+        is_nvidia,
+    }
+}
+
+fn check_model_dir_writable(models_dir: &Path) -> (bool, Option<String>) {
+    if let Err(e) = fs::create_dir_all(models_dir) {
+        return (false, Some(e.to_string()));
+    }
+
+    let test_path = models_dir.join(".rapidraw-write-test");
+    match fs::write(&test_path, b"ok").and_then(|_| fs::remove_file(&test_path)) {
+        Ok(()) => (true, None),
+        Err(e) => (false, Some(e.to_string())),
+    }
+}
+
+fn model_info_for_spec(models_dir: &Path, spec: &LocalAiModelSpec) -> Result<LocalAiModelInfo> {
+    let path = models_dir.join(spec.filename);
+    let installed = path.exists();
+    let size_bytes = if installed {
+        fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
+    } else {
+        0
+    };
+    let valid = if installed {
+        verify_sha256(&path, spec.sha256).unwrap_or(false)
+    } else {
+        false
+    };
+
+    Ok(LocalAiModelInfo {
+        id: spec.id.to_string(),
+        name: spec.name.to_string(),
+        filename: spec.filename.to_string(),
+        file_type: spec.file_type.to_string(),
+        required: spec.required,
+        installed,
+        valid,
+        size_bytes,
+        sha256: spec.sha256.to_string(),
+    })
+}
+
+fn model_dir_disk_usage(models_dir: &Path) -> u64 {
+    fs::read_dir(models_dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.flatten())
+        .filter_map(|entry| entry.metadata().ok())
+        .filter(|metadata| metadata.is_file())
+        .map(|metadata| metadata.len())
+        .sum()
 }
 
 async fn download_and_verify_model(
@@ -218,6 +398,97 @@ async fn download_and_verify_model(
         }
     }
     Ok(())
+}
+
+fn probe_cuda_execution_provider() -> (bool, Option<String>) {
+    (
+        false,
+        Some("CUDA execution provider is not enabled in this build.".to_string()),
+    )
+}
+
+pub fn get_local_ai_status(app_handle: &tauri::AppHandle) -> Result<LocalAiStatus> {
+    let models_dir = get_models_dir(app_handle)?;
+    let gpu = query_nvidia_gpu();
+    let (model_dir_writable, model_dir_error) = check_model_dir_writable(&models_dir);
+    let models = LOCAL_AI_MODEL_SPECS
+        .iter()
+        .map(|spec| model_info_for_spec(&models_dir, spec))
+        .collect::<Result<Vec<_>>>()?;
+    let (cuda_provider_available, cuda_provider_error) = probe_cuda_execution_provider();
+
+    Ok(LocalAiStatus {
+        is_windows: cfg!(target_os = "windows"),
+        cuda_available: gpu.is_nvidia,
+        cuda_provider_available,
+        cuda_provider_error,
+        model_dir: models_dir.to_string_lossy().to_string(),
+        model_dir_writable,
+        model_dir_error,
+        disk_usage_bytes: model_dir_disk_usage(&models_dir),
+        required_file_types: vec![".onnx".to_string()],
+        gpu,
+        models,
+    })
+}
+
+pub async fn download_local_ai_model(
+    app_handle: &tauri::AppHandle,
+    model_id: &str,
+) -> Result<LocalAiModelInfo> {
+    let spec = find_local_ai_model_spec(model_id)?;
+    let models_dir = get_models_dir(app_handle)?;
+    let (writable, error) = check_model_dir_writable(&models_dir);
+    if !writable {
+        return Err(anyhow::anyhow!(
+            "Install-folder model directory is not writable: {}",
+            error.unwrap_or_else(|| "unknown error".to_string())
+        ));
+    }
+
+    download_and_verify_model(
+        app_handle,
+        &models_dir,
+        spec.filename,
+        spec.url,
+        spec.sha256,
+        spec.name,
+    )
+    .await?;
+
+    model_info_for_spec(&models_dir, spec)
+}
+
+pub fn delete_local_ai_model(
+    app_handle: &tauri::AppHandle,
+    model_id: &str,
+) -> Result<LocalAiModelInfo> {
+    let spec = find_local_ai_model_spec(model_id)?;
+    let models_dir = get_models_dir(app_handle)?;
+    let model_path = models_dir.join(spec.filename);
+    let canonical_dir = models_dir.canonicalize()?;
+
+    if model_path.exists() {
+        let canonical_model = model_path.canonicalize()?;
+        if !canonical_model.starts_with(&canonical_dir) {
+            return Err(anyhow::anyhow!(
+                "Refusing to delete model outside install-folder model directory"
+            ));
+        }
+        fs::remove_file(&canonical_model)?;
+    }
+
+    model_info_for_spec(&models_dir, spec)
+}
+
+pub async fn run_local_ai_self_test(
+    _app_handle: &tauri::AppHandle,
+    _ai_state_mutex: &Mutex<Option<AiState>>,
+    _ai_init_lock: &TokioMutex<()>,
+) -> Result<String> {
+    Err(anyhow::anyhow!(
+        "CUDA local GPU self-test is not enabled in this build."
+    ))
 }
 
 pub async fn get_or_init_ai_models(
@@ -326,6 +597,7 @@ pub async fn get_or_init_ai_models(
             denoise_model: None,
             clip_models: None,
             lama_model: None,
+            lama_cuda_model: None,
             embeddings: None,
             depth_map: None,
         });
@@ -386,6 +658,7 @@ pub async fn get_or_init_denoise_model(
             denoise_model: Some(denoise_model.clone()),
             clip_models: None,
             lama_model: None,
+            lama_cuda_model: None,
             embeddings: None,
             depth_map: None,
         });
@@ -457,6 +730,7 @@ pub async fn get_or_init_clip_models(
             denoise_model: None,
             clip_models: Some(clip_models.clone()),
             lama_model: None,
+            lama_cuda_model: None,
             embeddings: None,
             depth_map: None,
         });
@@ -517,6 +791,7 @@ pub async fn get_or_init_lama_model(
             denoise_model: None,
             clip_models: None,
             lama_model: Some(lama_model.clone()),
+            lama_cuda_model: None,
             embeddings: None,
             depth_map: None,
         });

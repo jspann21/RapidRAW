@@ -406,6 +406,41 @@ pub async fn test_ai_connector_connection(address: String) -> Result<(), String>
 }
 
 #[tauri::command]
+pub fn get_local_ai_status(
+    app_handle: tauri::AppHandle,
+) -> Result<ai_processing::LocalAiStatus, String> {
+    ai_processing::get_local_ai_status(&app_handle).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn download_local_ai_model(
+    model_id: String,
+    app_handle: tauri::AppHandle,
+) -> Result<ai_processing::LocalAiModelInfo, String> {
+    ai_processing::download_local_ai_model(&app_handle, &model_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_local_ai_model(
+    model_id: String,
+    app_handle: tauri::AppHandle,
+) -> Result<ai_processing::LocalAiModelInfo, String> {
+    ai_processing::delete_local_ai_model(&app_handle, &model_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn run_local_ai_self_test(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    ai_processing::run_local_ai_self_test(&app_handle, &state.ai_state, &state.ai_init_lock)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn invoke_generative_replace_with_mask_def(
     path: String,
     patch_definition: AiPatchDefinition,
