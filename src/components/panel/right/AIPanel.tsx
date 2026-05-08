@@ -60,11 +60,13 @@ import { TEXT_COLOR_KEYS, TextColors, TextVariants, TextWeights } from '../../..
 // NEW IMPORTS
 import { useEditorStore } from '../../../store/useEditorStore';
 import { useProcessStore } from '../../../store/useProcessStore';
+import { useSettingsStore } from '../../../store/useSettingsStore';
 import { useUIStore } from '../../../store/useUIStore';
 import { useEditorActions } from '../../../hooks/useEditorActions';
 import { useAiMasking } from '../../../hooks/useAiMasking';
 
 interface ConnectionStatusProps {
+  aiProvider: string;
   isConnected: boolean;
 }
 
@@ -165,8 +167,41 @@ const BrushTools = ({ settings, onSettingsChange }: { settings: any; onSettingsC
   </div>
 );
 
-const ConnectionStatus = ({ isConnected }: ConnectionStatusProps) => {
+const ConnectionStatus = ({ aiProvider, isConnected }: ConnectionStatusProps) => {
   const [isHovered, setIsHovered] = useState(false);
+  if (aiProvider === 'cpu') {
+    return (
+      <div className="flex items-center gap-2 px-4 py-2 bg-surface rounded-lg">
+        <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
+        <Text variant={TextVariants.label}>Built-in AI:</Text>
+        <Text variant={TextVariants.label} weight={TextWeights.bold} color={TextColors.success}>
+          CPU
+        </Text>
+      </div>
+    );
+  }
+  if (aiProvider === 'local-gpu') {
+    return (
+      <div className="flex items-center gap-2 px-4 py-2 bg-surface rounded-lg">
+        <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
+        <Text variant={TextVariants.label}>Local GPU:</Text>
+        <Text variant={TextVariants.label} weight={TextWeights.bold} color={TextColors.success}>
+          CUDA
+        </Text>
+      </div>
+    );
+  }
+  if (aiProvider === 'cloud') {
+    return (
+      <div className="flex items-center gap-2 px-4 py-2 bg-surface rounded-lg">
+        <div className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
+        <Text variant={TextVariants.label}>Cloud AI:</Text>
+        <Text variant={TextVariants.label} weight={TextWeights.bold} color={TextColors.info}>
+          Selected
+        </Text>
+      </div>
+    );
+  }
   if (isConnected) {
     return (
       <div className="flex items-center gap-2 px-4 py-2 bg-surface rounded-lg">
@@ -219,6 +254,7 @@ export default function AIPanel() {
   const setEditor = useEditorStore((s) => s.setEditor);
 
   const aiModelDownloadStatus = useProcessStore((s) => s.aiModelDownloadStatus);
+  const aiProvider = useSettingsStore((s) => s.appSettings?.aiProvider || 'cpu');
   const setCustomEscapeHandler = useUIStore((s) => s.setCustomEscapeHandler);
 
   const { setAdjustments } = useEditorActions();
@@ -841,7 +877,7 @@ export default function AIPanel() {
                   </Text>
                 ) : (
                   <>
-                    <ConnectionStatus isConnected={isAIConnectorConnected} />
+                    <ConnectionStatus aiProvider={aiProvider} isConnected={isAIConnectorConnected} />
                     <Text variant={TextVariants.heading} className="mb-2 mt-8">
                       Create New Generative Edit
                     </Text>
@@ -967,6 +1003,7 @@ export default function AIPanel() {
                   setBrushSettings={setBrushSettings}
                   updateContainer={updatePatch}
                   updateSubMask={updateSubMask}
+                  aiProvider={aiProvider}
                   isAIConnectorConnected={isAIConnectorConnected}
                   isGeneratingAi={isGeneratingAi}
                   isGeneratingAiMask={isGeneratingAiMask}
@@ -1563,6 +1600,7 @@ function SettingsPanel({
   setBrushSettings,
   updateContainer,
   updateSubMask,
+  aiProvider,
   isAIConnectorConnected,
   isGeneratingAi,
   isGeneratingAiMask: _isGeneratingAiMask,
@@ -1585,19 +1623,41 @@ function SettingsPanel({
   }, [container?.id]);
 
   const isQuickErasePatch = displayContainer.subMasks?.some((sm: SubMask) => sm.type === Mask.QuickEraser);
+  const providerUsesLocalInpaint = aiProvider === 'cpu' || aiProvider === 'local-gpu';
+  const promptBackendUnavailable = aiProvider === 'ai-connector' && !isAIConnectorConnected;
+  const effectiveUseInpaint = providerUsesLocalInpaint || isQuickErasePatch || promptBackendUnavailable || useFastInpaint;
+  const showBackendSwitch = aiProvider === 'ai-connector' && isAIConnectorConnected && !isQuickErasePatch;
+  const showPromptInput = !effectiveUseInpaint;
+  const backendDescription = isQuickErasePatch
+    ? 'Fill selection to remove the object.'
+    : aiProvider === 'local-gpu'
+      ? 'Fill selection with the local CUDA ONNX model.'
+      : aiProvider === 'cpu' || effectiveUseInpaint
+        ? 'Fill selection based on surrounding pixels.'
+        : 'Describe what you want to generate in the selected area.';
+  const generateLabel =
+    isGeneratingAi || displayContainer.isLoading
+      ? 'Generating...'
+      : aiProvider === 'local-gpu'
+        ? 'Inpaint with CUDA'
+        : aiProvider === 'ai-connector' && !effectiveUseInpaint
+          ? 'Generate with AI Connector'
+          : aiProvider === 'cloud' && !effectiveUseInpaint
+            ? 'Generate with Cloud AI'
+            : 'Inpaint Selection';
 
   useEffect(() => {
     if (container) {
-      if (!isAIConnectorConnected) {
+      if (providerUsesLocalInpaint || isQuickErasePatch || promptBackendUnavailable) {
         setUseFastInpaint(true);
       } else if (container.id !== prevContainerId.current) {
-        setUseFastInpaint(isQuickErasePatch);
+        setUseFastInpaint(false);
         prevContainerId.current = container.id;
       }
     } else {
       prevContainerId.current = null;
     }
-  }, [isAIConnectorConnected, container, isQuickErasePatch]);
+  }, [providerUsesLocalInpaint, promptBackendUnavailable, container, isQuickErasePatch]);
 
   const subMaskConfig = activeSubMask ? SUB_MASK_CONFIG[activeSubMask.type] || {} : {};
   const isAiMask =
@@ -1609,7 +1669,7 @@ function SettingsPanel({
   const handleGenerateClick = () => {
     if (!container) return;
     updateContainer(container.id, { prompt });
-    onGenerativeReplace(container.id, prompt, useFastInpaint);
+    onGenerativeReplace(container.id, prompt, effectiveUseInpaint);
   };
 
   const handleToggleSection = (section: string) =>
@@ -1644,29 +1704,20 @@ function SettingsPanel({
             </Text>
           )}
 
-          <Text variant={TextVariants.small}>
-            {isQuickErasePatch
-              ? 'Fill selection to remove the object.'
-              : useFastInpaint
-                ? 'Fill selection based on surrounding pixels.'
-                : 'Describe what you want to generate in the selected area.'}
-          </Text>
+          <Text variant={TextVariants.small}>{backendDescription}</Text>
 
           <div>
-            <Switch
-              checked={useFastInpaint}
-              disabled={!isAIConnectorConnected}
-              label="Use basic inpainting"
-              onChange={setUseFastInpaint}
-              tooltip={
-                !isAIConnectorConnected
-                  ? 'AI Connector not connected, basic inpainting is required.'
-                  : 'Basic inpainting is quicker but not generative. Uncheck to use AI Connector with a text prompt.'
-              }
-            />
+            {showBackendSwitch && (
+              <Switch
+                checked={useFastInpaint}
+                label="Use basic inpainting"
+                onChange={setUseFastInpaint}
+                tooltip="Basic inpainting is quicker but not generative. Uncheck to use AI Connector with a text prompt."
+              />
+            )}
 
             <AnimatePresence>
-              {!useFastInpaint && (
+              {showPromptInput && (
                 <motion.div
                   animate={{ opacity: 1, height: 'auto', marginTop: '0.75rem' }}
                   className="overflow-hidden"
@@ -1706,11 +1757,7 @@ function SettingsPanel({
               <Send size={16} />
             )}
             <span className="ml-2">
-              {isGeneratingAi || displayContainer.isLoading
-                ? 'Generating...'
-                : useFastInpaint
-                  ? 'Inpaint Selection'
-                  : 'Generate with AI'}
+              {generateLabel}
             </span>
           </Button>
         </div>

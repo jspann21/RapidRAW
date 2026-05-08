@@ -13,7 +13,8 @@ use crate::ai_connector;
 use crate::ai_processing::{
     self, AiDepthMaskParameters, AiForegroundMaskParameters, AiSkyMaskParameters,
     AiSubjectMaskParameters, CachedDepthMap, generate_image_embeddings, get_or_init_ai_models,
-    run_depth_anything_model, run_sam_decoder, run_sky_seg_model, run_u2netp_model,
+    get_or_init_lama_cuda_model, run_depth_anything_model, run_sam_decoder, run_sky_seg_model,
+    run_u2netp_model,
 };
 use crate::app_settings::load_settings;
 use crate::app_state::AppState;
@@ -496,7 +497,17 @@ pub async fn invoke_generative_replace_with_mask_def(
         apply_unwarp_geometry(Cow::Borrowed(&mask_dynamic), &current_adjustments).into_owned();
     let mask_bitmap = unwarped_dynamic.to_luma8();
 
-    let patch_rgba = if use_fast_inpaint {
+    let ai_provider = settings.ai_provider.as_deref().unwrap_or("cpu");
+
+    let patch_rgba = if ai_provider == "local-gpu" {
+        let lama_model =
+            get_or_init_lama_cuda_model(&app_handle, &state.ai_state, &state.ai_init_lock)
+                .await
+                .map_err(|e| e.to_string())?;
+
+        ai_processing::run_lama_inpainting(&source_image, &mask_bitmap, &lama_model)
+            .map_err(|e| e.to_string())?
+    } else if use_fast_inpaint || ai_provider == "cpu" {
         let lama_model = ai_processing::get_or_init_lama_model(
             &app_handle,
             &state.ai_state,
@@ -507,7 +518,10 @@ pub async fn invoke_generative_replace_with_mask_def(
 
         ai_processing::run_lama_inpainting(&source_image, &mask_bitmap, &lama_model)
             .map_err(|e| e.to_string())?
-    } else if let Some(address) = settings.ai_connector_address {
+    } else if ai_provider == "ai-connector" {
+        let Some(address) = settings.ai_connector_address else {
+            return Err("AI Connector is selected, but no connector address is configured.".to_string());
+        };
         let mut rgba_mask = RgbaImage::new(img_w, img_h);
         for (x, y, luma_pixel) in mask_bitmap.enumerate_pixels() {
             let intensity = luma_pixel[0];
@@ -527,7 +541,10 @@ pub async fn invoke_generative_replace_with_mask_def(
         )
         .await
         .map_err(|e| e.to_string())?
-    } else if let Some(auth_token) = token {
+    } else if ai_provider == "cloud" {
+        let Some(auth_token) = token else {
+            return Err("Cloud AI is selected, but no cloud authentication token is available.".to_string());
+        };
         let client = reqwest::Client::new();
         let api_url = "https://api.letshopeitcompiles.com/inpaint";
 
@@ -574,10 +591,7 @@ pub async fn invoke_generative_replace_with_mask_def(
             ));
         }
     } else {
-        return Err(
-            "No generative backend available. Connect to a RapidRAW AI Connector or upgrade to Pro for Cloud AI."
-                .to_string(),
-        );
+        return Err(format!("Unknown AI provider selected: {}", ai_provider));
     };
 
     let (patch_w, patch_h) = patch_rgba.dimensions();
