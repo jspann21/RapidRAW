@@ -425,8 +425,13 @@ export function useImageProcessing(
         applyAdjustments(adjustments, false, applyRes);
         debouncedSave(selectedImage.path, adjustments);
 
-        const otherPaths = multiSelectedPaths.filter((p) => p !== selectedImage.path);
-        if (otherPaths.length > 0) {
+        const { suppressNextMultiSelectionSync } = useEditorStore.getState();
+        const otherPaths = suppressNextMultiSelectionSync
+          ? []
+          : multiSelectedPaths.filter((p) => p !== selectedImage.path);
+        if (suppressNextMultiSelectionSync) {
+          setEditor({ suppressNextMultiSelectionSync: false });
+        } else if (otherPaths.length > 0) {
           const prev = prevAdjustmentsRef.current;
           if (prev && prev.path === selectedImage.path) {
             const delta: Partial<Adjustments> = {};

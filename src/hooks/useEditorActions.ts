@@ -6,6 +6,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useProcessStore } from '../store/useProcessStore';
+import { PasteAdjustmentsUndoSnapshot } from '../store/useEditorStore';
 import {
   Adjustments,
   INITIAL_ADJUSTMENTS,
@@ -44,6 +45,38 @@ const hasAdjustmentPayload = (value: unknown): value is Adjustments => {
   if (!value) return false;
   if (typeof value !== 'object') return false;
   return !('is_null' in value && (value as { is_null?: boolean }).is_null);
+};
+
+const toNormalizedAdjustments = (adjustments: unknown): Adjustments => {
+  return hasAdjustmentPayload(adjustments) ? normalizeLoadedAdjustments(adjustments) : { ...INITIAL_ADJUSTMENTS };
+};
+
+const loadPasteUndoSnapshot = async (
+  path: string,
+  activeImagePath: string | null | undefined,
+  activeAdjustments: Adjustments,
+): Promise<PasteAdjustmentsUndoSnapshot> => {
+  if (path === activeImagePath) {
+    const currentAdjustments = structuredClone(activeAdjustments);
+    return {
+      path,
+      adjustments: currentAdjustments,
+      normalizedAdjustments: currentAdjustments,
+    };
+  }
+
+  const metadata = await invoke<{ adjustments?: unknown }>(Invokes.LoadMetadata, { path });
+  const savedAdjustments = hasAdjustmentPayload(metadata.adjustments) ? structuredClone(metadata.adjustments) : null;
+
+  return {
+    path,
+    adjustments: savedAdjustments,
+    normalizedAdjustments: toNormalizedAdjustments(savedAdjustments),
+  };
+};
+
+const saveAdjustmentsForPath = (path: string, adjustments: unknown) => {
+  return invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments });
 };
 
 export function useEditorActions() {
@@ -183,9 +216,9 @@ export function useEditorActions() {
   }, []);
 
   const handlePasteAdjustments = useCallback(
-    (paths?: string[]) => {
+    async (paths?: string[]) => {
       const { copiedAdjustments, selectedImage, adjustments } = useEditorStore.getState();
-      const { multiSelectedPaths } = useLibraryStore.getState();
+      const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
       const { appSettings } = useSettingsStore.getState();
       const { setProcess } = useProcessStore.getState();
 
@@ -212,24 +245,105 @@ export function useEditorActions() {
         return;
       }
 
-      const pathsToUpdate =
-        paths || (multiSelectedPaths.length > 0 ? multiSelectedPaths : selectedImage ? [selectedImage.path] : []);
+      const pathsToUpdate = Array.from(
+        new Set(
+          paths || (multiSelectedPaths.length > 0 ? multiSelectedPaths : selectedImage ? [selectedImage.path] : []),
+        ),
+      );
       if (pathsToUpdate.length === 0) return;
+
+      let undoSnapshots: PasteAdjustmentsUndoSnapshot[];
+      try {
+        undoSnapshots = await Promise.all(
+          pathsToUpdate.map((path) => loadPasteUndoSnapshot(path, selectedImage?.path, adjustments)),
+        );
+      } catch (err) {
+        toast.error(`Failed to prepare paste undo: ${err}`);
+        return;
+      }
+
+      const nextAdjustmentsByPath = undoSnapshots.map((snapshot) => ({
+        path: snapshot.path,
+        adjustments: structuredClone({ ...snapshot.normalizedAdjustments, ...adjustmentsToApply }) as Adjustments,
+      }));
+
+      if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
+        const nextActiveAdjustments = nextAdjustmentsByPath.find(
+          (item) => item.path === selectedImage.path,
+        )?.adjustments;
+        if (nextActiveAdjustments) {
+          setAdjustments(nextActiveAdjustments);
+        }
+      }
+
+      useEditorStore.getState().setEditor((state) => ({
+        pasteAdjustmentsUndoStack: [...state.pasteAdjustmentsUndoStack, { snapshots: undoSnapshots }].slice(-20),
+      }));
 
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
-      if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
-        setAdjustments({ ...adjustments, ...adjustmentsToApply });
+      try {
+        await Promise.all(
+          nextAdjustmentsByPath.map(({ path, adjustments }) => saveAdjustmentsForPath(path, adjustments)),
+        );
+        const nextLibraryActive = libraryActivePath
+          ? nextAdjustmentsByPath.find((item) => item.path === libraryActivePath)
+          : null;
+        if (nextLibraryActive) {
+          setLibrary({ libraryActiveAdjustments: nextLibraryActive.adjustments });
+        }
+      } catch (err) {
+        toast.error(`Failed to paste adjustments: ${err}`);
       }
-
-      invoke(Invokes.ApplyAdjustmentsToPaths, { paths: pathsToUpdate, adjustments: adjustmentsToApply }).catch((err) =>
-        toast.error(`Failed to paste adjustments: ${err}`),
-      );
 
       setProcess({ isPasted: true });
     },
     [setAdjustments],
   );
+
+  const handleUndoPasteAdjustments = useCallback(async () => {
+    const { pasteAdjustmentsUndoStack } = useEditorStore.getState();
+    const undoEntry = pasteAdjustmentsUndoStack[pasteAdjustmentsUndoStack.length - 1];
+    if (!undoEntry) return false;
+
+    debouncedSetHistory.cancel();
+    debouncedSave.cancel();
+
+    try {
+      undoEntry.snapshots.forEach((snapshot) => globalImageCache.delete(snapshot.path));
+      await Promise.all(
+        undoEntry.snapshots.map((snapshot) => saveAdjustmentsForPath(snapshot.path, snapshot.adjustments)),
+      );
+
+      const { selectedImage, resetHistory, setEditor } = useEditorStore.getState();
+      const { libraryActivePath, setLibrary } = useLibraryStore.getState();
+      const activeSnapshot = selectedImage
+        ? undoEntry.snapshots.find((snapshot) => snapshot.path === selectedImage.path)
+        : null;
+      const libraryActiveSnapshot = libraryActivePath
+        ? undoEntry.snapshots.find((snapshot) => snapshot.path === libraryActivePath)
+        : null;
+
+      setEditor((state) => ({
+        pasteAdjustmentsUndoStack: state.pasteAdjustmentsUndoStack.slice(0, -1),
+      }));
+
+      if (activeSnapshot) {
+        setEditor({ suppressNextMultiSelectionSync: true });
+        resetHistory(structuredClone(activeSnapshot.normalizedAdjustments));
+      }
+
+      if (libraryActiveSnapshot) {
+        setLibrary({ libraryActiveAdjustments: structuredClone(libraryActiveSnapshot.normalizedAdjustments) });
+      }
+
+      useProcessStore.getState().setProcess({ isPasted: true });
+      return true;
+    } catch (err) {
+      toast.error(`Failed to undo pasted adjustments: ${err}`);
+      return false;
+    }
+  }, []);
 
   const handleZoomChange = useCallback((zoomValue: number, fitToWindow: boolean = false) => {
     const { originalSize, baseRenderSize, adjustments } = useEditorStore.getState();
@@ -289,6 +403,7 @@ export function useEditorActions() {
     handleResetAdjustments,
     handleCopyAdjustments,
     handlePasteAdjustments,
+    handleUndoPasteAdjustments,
     handleZoomChange,
   };
 }

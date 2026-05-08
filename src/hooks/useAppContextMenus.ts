@@ -70,8 +70,13 @@ export interface UseAppContextMenusProps {
 export function useAppContextMenus(props: UseAppContextMenusProps) {
   const { showContextMenu } = useContextMenu();
 
-  const { handleAutoAdjustments, handleResetAdjustments, handleCopyAdjustments, handlePasteAdjustments } =
-    useEditorActions();
+  const {
+    handleAutoAdjustments,
+    handleResetAdjustments,
+    handleCopyAdjustments,
+    handlePasteAdjustments,
+    handleUndoPasteAdjustments,
+  } = useEditorActions();
   const { handleRate, handleSetColorLabel, handleTagsChanged } = useLibraryActions();
 
   const getCommonTags = useCallback((paths: string[]): { tag: string; isUser: boolean }[] => {
@@ -105,14 +110,23 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       event.stopPropagation();
 
       // Read state inline so hook doesn't cause re-renders
-      const { selectedImage, history, historyIndex, undo, redo, resetHistory, copiedAdjustments, setEditor } =
-        useEditorStore.getState();
+      const {
+        selectedImage,
+        history,
+        historyIndex,
+        pasteAdjustmentsUndoStack,
+        undo,
+        redo,
+        resetHistory,
+        copiedAdjustments,
+        setEditor,
+      } = useEditorStore.getState();
       const { appSettings } = useSettingsStore.getState();
       const { setRightPanel, setUI } = useUIStore.getState();
 
       if (!selectedImage) return;
 
-      const canUndo = historyIndex > 0;
+      const canUndo = pasteAdjustmentsUndoStack.length > 0 || historyIndex > 0;
       const canRedo = historyIndex < history.length - 1;
       const commonTags = getCommonTags([selectedImage.path]);
 
@@ -123,7 +137,15 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           onClick: () => setRightPanel(Panel.Export, RIGHT_PANEL_ORDER),
         },
         { type: OPTION_SEPARATOR },
-        { label: 'Undo', icon: Undo, onClick: undo, disabled: !canUndo },
+        {
+          label: 'Undo',
+          icon: Undo,
+          onClick: async () => {
+            const didUndoPaste = await handleUndoPasteAdjustments();
+            if (!didUndoPaste) undo();
+          },
+          disabled: !canUndo,
+        },
         { label: 'Redo', icon: Redo, onClick: redo, disabled: !canRedo },
         { type: OPTION_SEPARATOR },
         { label: 'Copy Adjustments', icon: Copy, onClick: handleCopyAdjustments },
@@ -247,6 +269,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       getCommonTags,
       handleCopyAdjustments,
       handlePasteAdjustments,
+      handleUndoPasteAdjustments,
       handleAutoAdjustments,
       handleRate,
       handleSetColorLabel,

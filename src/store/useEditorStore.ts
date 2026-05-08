@@ -14,6 +14,16 @@ export interface InteractivePatch {
   normH: number;
 }
 
+export interface PasteAdjustmentsUndoSnapshot {
+  path: string;
+  adjustments: unknown;
+  normalizedAdjustments: Adjustments;
+}
+
+export interface PasteAdjustmentsUndoEntry {
+  snapshots: PasteAdjustmentsUndoSnapshot[];
+}
+
 interface EditorState {
   // Core Image & Adjustments
   selectedImage: SelectedImage | null;
@@ -22,6 +32,8 @@ interface EditorState {
   // History State
   history: Adjustments[];
   historyIndex: number;
+  pasteAdjustmentsUndoStack: PasteAdjustmentsUndoEntry[];
+  suppressNextMultiSelectionSync: boolean;
 
   // Previews & Overlays
   finalPreviewUrl: string | null;
@@ -85,6 +97,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   adjustments: INITIAL_ADJUSTMENTS,
   history: [INITIAL_ADJUSTMENTS],
   historyIndex: 0,
+  pasteAdjustmentsUndoStack: [],
+  suppressNextMultiSelectionSync: false,
 
   finalPreviewUrl: null,
   uncroppedAdjustedPreviewUrl: null,
