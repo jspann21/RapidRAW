@@ -184,7 +184,7 @@ function TreeNode({
       <div
         className={clsx('flex items-center gap-2 p-1.5 rounded-md transition-colors cursor-pointer', {
           'bg-surface': isSelected,
-          'ring-2 ring-accent bg-accent/20 shadow-lg': isDropTarget,
+          'ring-2 ring-inset ring-accent bg-accent/20 shadow-lg': isDropTarget,
           'hover:bg-card-active': !isSelected,
         })}
         onClick={handleNameClick}
