@@ -40,6 +40,7 @@ import { useProductivityActions } from './hooks/useProductivityActions';
 
 import { THEMES, DEFAULT_THEME_ID, ThemeProps } from './utils/themes';
 import { COPYABLE_ADJUSTMENT_KEYS } from './utils/adjustments';
+import { normalizeDraggedImagePaths } from './utils/imageDragDrop';
 import {
   FilterCriteria,
   Invokes,
@@ -91,6 +92,29 @@ const insertChildrenIntoTree = (node: any, targetPath: string, newChildren: any[
 
   return node;
 };
+
+const getFolderDropTargetPath = (target: EventTarget | null) => {
+  if (!(target instanceof Element)) return null;
+  return target.closest<HTMLElement>('[data-folder-path]')?.dataset.folderPath || null;
+};
+
+const isFolderSidebarTarget = (target: EventTarget | Element | null) => {
+  return target instanceof Element && !!target.closest('[data-folder-sidebar]');
+};
+
+const getLibraryImageDragSourcePath = (target: EventTarget | null) => {
+  if (!(target instanceof Element)) return null;
+  return target.closest<HTMLElement>('[data-library-image-path]')?.dataset.libraryImagePath || null;
+};
+
+interface LibraryImagePointerDrag {
+  dragging: boolean;
+  paths: string[];
+  pointerId: number;
+  sourcePath: string;
+  startX: number;
+  startY: number;
+}
 
 function App() {
   const COMPACT_EDITOR_MAX_WIDTH = 900;
@@ -198,6 +222,9 @@ function App() {
   const defaultLibraryViewMode = osPlatform === 'android' ? LibraryViewMode.Recursive : LibraryViewMode.Flat;
 
   const selectedImagePathRef = useRef<string | null>(null);
+  const libraryImagePointerDragRef = useRef<LibraryImagePointerDrag | null>(null);
+  const suppressNextClickRef = useRef(false);
+  const [libraryDragPreview, setLibraryDragPreview] = useState<{ count: number; x: number; y: number } | null>(null);
   useEffect(() => {
     selectedImagePathRef.current = selectedImage?.path ?? null;
   }, [selectedImage?.path]);
@@ -332,6 +359,7 @@ function App() {
     handleStartImport,
     handleImportClick,
     handlePasteFiles,
+    handleMoveFilesToFolder,
   } = useFileOperations(
     handleLibraryRefresh,
     refreshAllFolderTrees,
@@ -339,6 +367,117 @@ function App() {
     handleBackToLibrary,
     sortedImageList,
   );
+
+  useEffect(() => {
+    if (!rootPath) return;
+
+    const getElementUnderPointer = (event: PointerEvent) => document.elementFromPoint(event.clientX, event.clientY);
+    const getDropTarget = (event: PointerEvent) => getFolderDropTargetPath(getElementUnderPointer(event));
+    const isOverFolderSidebar = (event: PointerEvent) => isFolderSidebarTarget(getElementUnderPointer(event));
+
+    const clearPointerDrag = () => {
+      libraryImagePointerDragRef.current = null;
+      setLibraryDragPreview(null);
+      useLibraryStore.getState().setLibrary({ draggedImagePaths: [], dragTargetFolderPath: null });
+    };
+
+    const handleDocumentPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+
+      const sourcePath = getLibraryImageDragSourcePath(event.target);
+      if (!sourcePath) return;
+
+      const { multiSelectedPaths } = useLibraryStore.getState();
+      const draggedPaths = normalizeDraggedImagePaths(
+        multiSelectedPaths.includes(sourcePath) ? multiSelectedPaths : [sourcePath],
+      );
+
+      if (draggedPaths.length === 0) return;
+
+      libraryImagePointerDragRef.current = {
+        dragging: false,
+        paths: draggedPaths,
+        pointerId: event.pointerId,
+        sourcePath,
+        startX: event.clientX,
+        startY: event.clientY,
+      };
+    };
+
+    const handleDocumentPointerMove = (event: PointerEvent) => {
+      const drag = libraryImagePointerDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+
+      const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+      if (!drag.dragging && distance < 4) return;
+
+      if (!drag.dragging) {
+        drag.dragging = true;
+        useLibraryStore.getState().setLibrary({ draggedImagePaths: drag.paths, dragTargetFolderPath: null });
+      }
+
+      event.preventDefault();
+      setLibraryDragPreview({ count: drag.paths.length, x: event.clientX, y: event.clientY });
+
+      const destinationFolder = getDropTarget(event);
+      const { dragTargetFolderPath, setLibrary } = useLibraryStore.getState();
+      if (isOverFolderSidebar(event)) {
+        if (dragTargetFolderPath !== destinationFolder) {
+          setLibrary({ dragTargetFolderPath: destinationFolder });
+        }
+      } else if (dragTargetFolderPath !== null) {
+        setLibrary({ dragTargetFolderPath: null });
+      }
+    };
+
+    const handleDocumentPointerUp = (event: PointerEvent) => {
+      const drag = libraryImagePointerDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+
+      const destinationFolder = drag.dragging && isOverFolderSidebar(event) ? getDropTarget(event) : null;
+      const draggedPaths = drag.paths;
+      const didDrag = drag.dragging;
+
+      clearPointerDrag();
+
+      if (!didDrag) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      suppressNextClickRef.current = true;
+
+      if (destinationFolder) {
+        handleMoveFilesToFolder(draggedPaths, destinationFolder);
+      }
+    };
+
+    const handleDocumentPointerCancel = (event: PointerEvent) => {
+      const drag = libraryImagePointerDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      clearPointerDrag();
+    };
+
+    const handleDocumentClick = (event: MouseEvent) => {
+      if (!suppressNextClickRef.current) return;
+      suppressNextClickRef.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    document.addEventListener('pointerdown', handleDocumentPointerDown, true);
+    document.addEventListener('pointermove', handleDocumentPointerMove, { capture: true, passive: false });
+    document.addEventListener('pointerup', handleDocumentPointerUp, true);
+    document.addEventListener('pointercancel', handleDocumentPointerCancel, true);
+    document.addEventListener('click', handleDocumentClick, true);
+
+    return () => {
+      document.removeEventListener('pointerdown', handleDocumentPointerDown, true);
+      document.removeEventListener('pointermove', handleDocumentPointerMove, true);
+      document.removeEventListener('pointerup', handleDocumentPointerUp, true);
+      document.removeEventListener('pointercancel', handleDocumentPointerCancel, true);
+      document.removeEventListener('click', handleDocumentClick, true);
+    };
+  }, [rootPath, handleMoveFilesToFolder]);
 
   const {
     handleStartPanorama,
@@ -907,6 +1046,17 @@ function App() {
           executeDelete={executeDelete}
           handleSaveCollage={handleSaveCollage}
         />
+        {libraryDragPreview && (
+          <div
+            className="fixed z-9999 pointer-events-none rounded-md bg-surface/95 border border-accent px-3 py-2 shadow-2xl text-sm font-semibold text-text-primary"
+            style={{
+              left: libraryDragPreview.x + 14,
+              top: libraryDragPreview.y + 14,
+            }}
+          >
+            {libraryDragPreview.count === 1 ? 'Moving 1 image' : `Moving ${libraryDragPreview.count} images`}
+          </div>
+        )}
         <ToastContainer
           position="bottom-right"
           autoClose={5000}

@@ -9,6 +9,8 @@ import { useProcessStore } from '../store/useProcessStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes } from '../components/ui/AppProperties';
 import { Status } from '../components/ui/ExportImportProperties';
+import { globalImageCache } from '../utils/ImageLRUCache';
+import { debouncedSave } from './useEditorActions';
 
 export function useFileOperations(
   refreshImageList: () => Promise<void>,
@@ -23,6 +25,12 @@ export function useFileOperations(
     if (lastSeparatorIndex === -1) return '';
     return filePath.substring(0, lastSeparatorIndex);
   };
+
+  const normalizePathForCompare = (path: string) =>
+    path
+      .replace(/[\\/]+$/, '')
+      .replace(/\\/g, '/')
+      .toLowerCase();
 
   const executeDelete = useCallback(
     async (pathsToDelete: Array<string>, options = { includeAssociated: false }) => {
@@ -389,6 +397,46 @@ export function useFileOperations(
     [refreshImageList, refreshAllFolderTrees],
   );
 
+  const handleMoveFilesToFolder = useCallback(
+    async (sourcePaths: string[], destinationFolder: string) => {
+      const normalizedDestination = normalizePathForCompare(destinationFolder);
+      const pathsToMove = Array.from(new Set(sourcePaths)).filter((path) => {
+        if (!path) return false;
+        const sourceParent = getParentDir(path.split('?vc=')[0]);
+        return normalizePathForCompare(sourceParent) !== normalizedDestination;
+      });
+
+      if (pathsToMove.length === 0 || !destinationFolder) return;
+
+      const { selectedImage } = useEditorStore.getState();
+      const { setLibrary } = useLibraryStore.getState();
+      const activePath = selectedImage?.path;
+      const isMovingActiveImage =
+        !!activePath &&
+        pathsToMove.some((path) => path === activePath || path.split('?vc=')[0] === activePath.split('?vc=')[0]);
+
+      try {
+        if (isMovingActiveImage) {
+          debouncedSave.flush();
+        }
+
+        pathsToMove.forEach((path) => globalImageCache.delete(path));
+        await invoke(Invokes.MoveFiles, { sourcePaths: pathsToMove, destinationFolder });
+        await refreshAllFolderTrees();
+        await refreshImageList();
+
+        if (isMovingActiveImage) {
+          handleBackToLibrary();
+        }
+
+        setLibrary({ multiSelectedPaths: [], libraryActivePath: null, selectionAnchorPath: null });
+      } catch (err) {
+        toast.error(`Failed to move files: ${err}`);
+      }
+    },
+    [refreshImageList, refreshAllFolderTrees, handleBackToLibrary],
+  );
+
   return {
     executeDelete,
     handleDeleteSelected,
@@ -400,5 +448,6 @@ export function useFileOperations(
     startImportFiles,
     handleImportClick,
     handlePasteFiles,
+    handleMoveFilesToFolder,
   };
 }

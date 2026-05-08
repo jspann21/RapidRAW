@@ -8,6 +8,7 @@ import { Color, COLOR_LABELS } from '../../utils/adjustments';
 import Text from '../ui/Text';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useProcessStore } from '../../store/useProcessStore';
+import { useLibraryStore } from '../../store/useLibraryStore';
 
 const HORIZONTAL_PADDING = 4;
 const ITEM_GAP = 8;
@@ -149,6 +150,7 @@ const FilmstripThumbnail = memo(
         : 'hover:ring-2 hover:ring-hover-color';
 
     const imageClasses = `w-full h-full group-hover:scale-[1.02] transition-transform duration-300`;
+    const dragCount = isSelected ? useLibraryStore.getState().multiSelectedPaths.length : 1;
 
     return (
       <motion.div
@@ -161,10 +163,11 @@ const FilmstripThumbnail = memo(
           onImageSelect?.(path, e);
         }}
         onContextMenu={(e: any) => onContextMenu?.(e, path)}
+        data-library-image-path={path}
         style={{
           zIndex: isActive ? 2 : isSelected ? 1 : 'auto',
         }}
-        data-tooltip={truncatedTitle}
+        data-tooltip={dragCount > 1 ? `Move ${dragCount} selected images` : truncatedTitle}
       >
         {layers.length > 0 ? (
           <div className="absolute inset-0 w-full h-full">
@@ -182,12 +185,14 @@ const FilmstripThumbnail = memo(
                 {thumbnailAspectRatio === ThumbnailAspectRatio.Contain && (
                   <img
                     alt=""
+                    draggable={false}
                     className="absolute inset-0 w-full h-full object-cover blur-md scale-110 opacity-50"
                     src={layer.url}
                   />
                 )}
                 <img
                   alt={truncatedTitle}
+                  draggable={false}
                   className={`${imageClasses} ${
                     thumbnailAspectRatio === ThumbnailAspectRatio.Contain ? 'object-contain' : 'object-cover'
                   } relative`}

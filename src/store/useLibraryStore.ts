@@ -24,6 +24,8 @@ interface LibraryState {
   selectionAnchorPath: string | null;
   libraryActivePath: string | null;
   libraryActiveAdjustments: Adjustments;
+  draggedImagePaths: Array<string>;
+  dragTargetFolderPath: string | null;
 
   // Sorting & Filtering
   sortCriteria: SortCriteria;
@@ -57,6 +59,8 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   selectionAnchorPath: null,
   libraryActivePath: null,
   libraryActiveAdjustments: INITIAL_ADJUSTMENTS,
+  draggedImagePaths: [],
+  dragTargetFolderPath: null,
 
   sortCriteria: { key: 'name', order: SortDirection.Ascending },
   filterCriteria: { colors: [], rating: 0, rawStatus: RawStatus.All },

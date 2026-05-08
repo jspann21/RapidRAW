@@ -1,7 +1,7 @@
 import { Folder, FolderOpen, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Search, X } from 'lucide-react';
 import clsx from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import Text from '../ui/Text';
 import { TEXT_COLOR_KEYS, TextColors, TextVariants, TextWeights } from '../../types/typography';
 
@@ -41,6 +41,8 @@ interface TreeNodeProps {
   pinnedFolders: string[];
   showImageCounts: boolean;
   isInstantTransition: boolean;
+  dragTargetFolderPath: string | null;
+  hasActiveImageDrag: boolean;
 }
 
 interface VisibleProps {
@@ -107,10 +109,40 @@ function TreeNode({
   pinnedFolders,
   showImageCounts,
   isInstantTransition,
+  dragTargetFolderPath,
+  hasActiveImageDrag,
 }: TreeNodeProps) {
   const hasChildren = node.hasSubdirs || (node.children && node.children.length > 0);
   const isSelected = node.path === selectedPath;
   const isPinned = pinnedFolders.includes(node.path);
+  const isDropTarget = dragTargetFolderPath === node.path;
+  const expandOnHoverTimer = useRef<number | null>(null);
+
+  const clearExpandOnHoverTimer = () => {
+    if (expandOnHoverTimer.current !== null) {
+      window.clearTimeout(expandOnHoverTimer.current);
+      expandOnHoverTimer.current = null;
+    }
+  };
+
+  useEffect(() => clearExpandOnHoverTimer, []);
+
+  useEffect(() => {
+    const shouldExpandOnHover = hasActiveImageDrag && dragTargetFolderPath === node.path && hasChildren && !isExpanded;
+    if (!shouldExpandOnHover) {
+      clearExpandOnHoverTimer();
+      return;
+    }
+
+    if (expandOnHoverTimer.current === null) {
+      expandOnHoverTimer.current = window.setTimeout(() => {
+        onToggle(node.path);
+        expandOnHoverTimer.current = null;
+      }, 700);
+    }
+
+    return clearExpandOnHoverTimer;
+  }, [dragTargetFolderPath, hasActiveImageDrag, hasChildren, isExpanded, node.path, onToggle]);
 
   const handleFolderIconClick = (e: any) => {
     e.stopPropagation();
@@ -152,10 +184,12 @@ function TreeNode({
       <div
         className={clsx('flex items-center gap-2 p-1.5 rounded-md transition-colors cursor-pointer', {
           'bg-surface': isSelected,
+          'ring-2 ring-accent bg-accent/20 shadow-lg': isDropTarget,
           'hover:bg-card-active': !isSelected,
         })}
         onClick={handleNameClick}
         onContextMenu={(e: any) => onContextMenu(e, node.path, isPinned)}
+        data-folder-path={node.path}
       >
         <div
           className={clsx('p-0.5 rounded-sm transition-colors', {
@@ -229,6 +263,8 @@ function TreeNode({
                       pinnedFolders={pinnedFolders}
                       showImageCounts={showImageCounts}
                       isInstantTransition={isInstantTransition}
+                      dragTargetFolderPath={dragTargetFolderPath}
+                      hasActiveImageDrag={hasActiveImageDrag}
                     />
                   </motion.div>
                 ))}
@@ -259,6 +295,8 @@ export default function FolderTree({
     currentFolderPath: selectedPath,
     expandedFolders,
     isTreeLoading: isLoading,
+    draggedImagePaths,
+    dragTargetFolderPath,
   } = useLibraryStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -331,6 +369,7 @@ export default function FolderTree({
   const isCurrentOpen = activeSection === 'current';
 
   const hasVisiblePinnedTrees = filteredPinnedTrees && filteredPinnedTrees.length > 0;
+  const hasActiveImageDrag = draggedImagePaths.length > 0;
 
   return (
     <div
@@ -341,6 +380,7 @@ export default function FolderTree({
       style={style}
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
+      data-folder-sidebar
     >
       {!isVisible && (
         <button
@@ -393,7 +433,10 @@ export default function FolderTree({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto" onContextMenu={handleEmptyAreaContextMenu}>
+          <div
+            className="flex-1 overflow-y-auto"
+            onContextMenu={handleEmptyAreaContextMenu}
+          >
             {hasVisiblePinnedTrees && (
               <>
                 <div>
@@ -426,6 +469,8 @@ export default function FolderTree({
                             pinnedFolders={pinnedFolders}
                             showImageCounts={showImageCounts && isHovering}
                             isInstantTransition={isInstantTransition}
+                            dragTargetFolderPath={dragTargetFolderPath}
+                            hasActiveImageDrag={hasActiveImageDrag}
                           />
                         ))}
                       </div>
@@ -465,6 +510,8 @@ export default function FolderTree({
                           pinnedFolders={pinnedFolders}
                           showImageCounts={showImageCounts && isHovering}
                           isInstantTransition={isInstantTransition}
+                          dragTargetFolderPath={dragTargetFolderPath}
+                          hasActiveImageDrag={hasActiveImageDrag}
                         />
                       </div>
                     </motion.div>

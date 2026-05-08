@@ -8,6 +8,7 @@ import Text from '../../ui/Text';
 import { TextColors, TextVariants, TextWeights, TEXT_COLOR_KEYS } from '../../../types/typography';
 import { ColumnWidths } from '../MainLibrary';
 import { useProcessStore } from '../../../store/useProcessStore';
+import { useLibraryStore } from '../../../store/useLibraryStore';
 
 interface ImageLayer {
   id: string;
@@ -101,16 +102,20 @@ const ThumbnailComponent = ({
       : 'hover:ring-2 hover:ring-hover-color';
   const colorTag = tags?.find((t: string) => t.startsWith('color:'))?.substring(6);
   const colorLabel = COLOR_LABELS.find((c: Color) => c.name === colorTag);
+  const isDragging = useLibraryStore((s) => s.draggedImagePaths.includes(path));
 
   return (
     <div
-      className={`aspect-square bg-surface rounded-md overflow-hidden cursor-pointer group relative transition-all duration-150 ${ringClass}`}
+      className={`aspect-square bg-surface rounded-md overflow-hidden cursor-pointer group relative transition-all duration-150 ${
+        isDragging ? 'ring-2 ring-accent opacity-70 scale-[0.98] shadow-lg' : ringClass
+      }`}
       onClick={(e: any) => {
         e.stopPropagation();
         onImageClick(path, e);
       }}
       onContextMenu={(e: any) => onContextMenu(e, path)}
       onDoubleClick={() => onImageDoubleClick(path)}
+      data-library-image-path={path}
     >
       {layers.length > 0 && (
         <div className="absolute inset-0 w-full h-full">
@@ -126,6 +131,7 @@ const ThumbnailComponent = ({
             >
               <img
                 alt={path.split(/[\\/]/).pop()}
+                draggable={false}
                 className={`w-full h-full group-hover:scale-[1.02] transition-transform duration-300 ${
                   thumbnailAspectRatio === ThumbnailAspectRatio.Contain ? 'object-contain' : 'object-cover'
                 } relative`}
@@ -284,16 +290,20 @@ const ListItemComponent = ({
     : isSelected
       ? 'ring-1 ring-inset ring-accent/50 bg-accent/5'
       : 'hover:bg-surface/80';
+  const isDragging = useLibraryStore((s) => s.draggedImagePaths.includes(path));
 
   return (
     <div
-      className={`flex items-center w-full h-full border-b border-border-color/30 cursor-pointer transition-colors duration-150 ${stateClass}`}
+      className={`flex items-center w-full h-full border-b border-border-color/30 cursor-pointer transition-colors duration-150 ${
+        isDragging ? 'ring-1 ring-inset ring-accent bg-accent/15 opacity-70' : stateClass
+      }`}
       onClick={(e: any) => {
         e.stopPropagation();
         onImageClick(path, e);
       }}
       onContextMenu={(e: any) => onContextMenu(e, path)}
       onDoubleClick={() => onImageDoubleClick(path)}
+      data-library-image-path={path}
     >
       <div
         style={{ width: `${columnWidths.thumbnail}%` }}
@@ -311,6 +321,7 @@ const ListItemComponent = ({
                 >
                   <img
                     alt={baseName}
+                    draggable={false}
                     className={`w-full h-full relative ${
                       thumbnailAspectRatio === ThumbnailAspectRatio.Contain ? 'object-contain' : 'object-cover'
                     }`}
