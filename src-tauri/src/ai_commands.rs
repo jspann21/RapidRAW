@@ -21,6 +21,7 @@ use crate::app_state::AppState;
 use crate::cache_utils::GEOMETRY_KEYS;
 use crate::image_loader::composite_patches_on_image;
 use crate::image_processing::apply_unwarp_geometry;
+use crate::local_comfy;
 use crate::mask_generation::{AiPatchDefinition, MaskDefinition, generate_mask_bitmap};
 use crate::{
     get_cached_full_warped_image, get_full_image_for_processing, resolve_warped_image_for_masks,
@@ -410,9 +411,14 @@ pub async fn test_ai_connector_connection(address: String) -> Result<(), String>
 pub fn get_local_ai_status(
     probe_runtime: Option<bool>,
     app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
 ) -> Result<ai_processing::LocalAiStatus, String> {
-    ai_processing::get_local_ai_status(&app_handle, probe_runtime.unwrap_or(false))
-        .map_err(|e| e.to_string())
+    ai_processing::get_local_ai_status(
+        &app_handle,
+        probe_runtime.unwrap_or(false),
+        &state.local_comfy_process,
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -439,6 +445,60 @@ pub async fn run_local_ai_self_test(
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
     ai_processing::run_local_ai_self_test(&app_handle, &state.ai_state, &state.ai_init_lock)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn download_local_ai_runtime(
+    app_handle: tauri::AppHandle,
+) -> Result<local_comfy::LocalComfyStatus, String> {
+    local_comfy::download_runtime(&app_handle)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_local_ai_runtime(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<local_comfy::LocalComfyStatus, String> {
+    local_comfy::delete_runtime(&app_handle, &state.local_comfy_process).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn download_local_ai_generative_assets(
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let models_dir = ai_processing::get_models_dir(&app_handle).map_err(|e| e.to_string())?;
+    local_comfy::download_generative_assets(&app_handle, &models_dir)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn start_local_ai_runtime(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<u16, String> {
+    let models_dir = ai_processing::get_models_dir(&app_handle).map_err(|e| e.to_string())?;
+    local_comfy::start_runtime(&app_handle, &models_dir, &state.local_comfy_process)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn stop_local_ai_runtime(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    local_comfy::stop_runtime(&state.local_comfy_process).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn run_local_generative_self_test(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let models_dir = ai_processing::get_models_dir(&app_handle).map_err(|e| e.to_string())?;
+    local_comfy::run_self_test(&app_handle, &models_dir, &state.local_comfy_process)
         .await
         .map_err(|e| e.to_string())
 }
@@ -501,7 +561,7 @@ pub async fn invoke_generative_replace_with_mask_def(
 
     let ai_provider = settings.ai_provider.as_deref().unwrap_or("cpu");
 
-    let patch_rgba = if ai_provider == "local-gpu" {
+    let patch_rgba = if ai_provider == "local-gpu" && use_fast_inpaint {
         let lama_model =
             get_or_init_lama_cuda_model(&app_handle, &state.ai_state, &state.ai_init_lock)
                 .await
@@ -509,6 +569,18 @@ pub async fn invoke_generative_replace_with_mask_def(
 
         ai_processing::run_lama_inpainting(&source_image, &mask_bitmap, &lama_model)
             .map_err(|e| e.to_string())?
+    } else if ai_provider == "local-gpu" {
+        let models_dir = ai_processing::get_models_dir(&app_handle).map_err(|e| e.to_string())?;
+        local_comfy::process_inpainting(
+            &app_handle,
+            &models_dir,
+            &state.local_comfy_process,
+            &source_image,
+            &mask_bitmap,
+            patch_definition.prompt,
+        )
+        .await
+        .map_err(|e| e.to_string())?
     } else if use_fast_inpaint || ai_provider == "cpu" {
         let lama_model = ai_processing::get_or_init_lama_model(
             &app_handle,

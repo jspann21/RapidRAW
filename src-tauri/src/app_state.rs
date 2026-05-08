@@ -15,6 +15,7 @@ use crate::cache_utils::DecodedImageCache;
 use crate::gpu_processing::GpuProcessor;
 use crate::image_processing::GpuContext;
 use crate::lens_correction::LensDatabase;
+use crate::local_comfy::LocalComfyProcess;
 use crate::lut_processing::Lut;
 
 #[derive(Serialize, Deserialize)]
@@ -115,6 +116,7 @@ pub struct AppState {
     pub gpu_image_cache: Mutex<Option<GpuImageCache>>,
     pub gpu_processor: Mutex<Option<GpuProcessorState>>,
     pub ai_state: Mutex<Option<AiState>>,
+    pub local_comfy_process: Mutex<Option<LocalComfyProcess>>,
     pub ai_init_lock: TokioMutex<()>,
     pub export_task_handle: Mutex<Option<JoinHandle<()>>>,
     pub hdr_result: Arc<Mutex<Option<DynamicImage>>>,

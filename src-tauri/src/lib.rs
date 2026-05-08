@@ -23,6 +23,7 @@ mod gpu_processing;
 mod image_loader;
 mod image_processing;
 mod lens_correction;
+mod local_comfy;
 mod lut_processing;
 mod mask_generation;
 mod negative_conversion;
@@ -2219,6 +2220,7 @@ pub fn run() {
             gpu_image_cache: Mutex::new(None),
             gpu_processor: Mutex::new(None),
             ai_state: Mutex::new(None),
+            local_comfy_process: Mutex::new(None),
             ai_init_lock: TokioMutex::new(()),
             export_task_handle: Mutex::new(None),
             hdr_result: Arc::new(Mutex::new(None)),
@@ -2276,6 +2278,12 @@ pub fn run() {
             ai_commands::download_local_ai_model,
             ai_commands::delete_local_ai_model,
             ai_commands::run_local_ai_self_test,
+            ai_commands::download_local_ai_runtime,
+            ai_commands::delete_local_ai_runtime,
+            ai_commands::download_local_ai_generative_assets,
+            ai_commands::start_local_ai_runtime,
+            ai_commands::stop_local_ai_runtime,
+            ai_commands::run_local_generative_self_test,
             ai_commands::invoke_generative_replace_with_mask_def,
             denoising::apply_denoising,
             denoising::batch_denoise_images,

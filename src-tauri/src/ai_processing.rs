@@ -303,6 +303,7 @@ pub struct LocalAiStatus {
     pub missing_runtime_dependencies: Vec<String>,
     pub gpu: LocalAiGpuInfo,
     pub models: Vec<LocalAiModelInfo>,
+    pub local_comfy: crate::local_comfy::LocalComfyStatus,
 }
 
 struct LocalAiModelSpec {
@@ -473,6 +474,37 @@ fn model_info_for_spec(
         valid,
         size_bytes,
         sha256: spec.sha256.to_string(),
+    })
+}
+
+fn model_info_for_generative_asset(
+    models_dir: &Path,
+    asset: &crate::local_comfy::GenerativeAssetSpec,
+    verify_hash: bool,
+) -> Result<LocalAiModelInfo> {
+    let path = models_dir.join(asset.relative_path);
+    let installed = path.exists();
+    let size_bytes = if installed {
+        fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
+    } else {
+        0
+    };
+    let valid = if installed && verify_hash {
+        verify_sha256(&path, asset.sha256).unwrap_or(false)
+    } else {
+        installed
+    };
+
+    Ok(LocalAiModelInfo {
+        id: asset.id.to_string(),
+        name: asset.name.to_string(),
+        filename: asset.relative_path.to_string(),
+        file_type: ".safetensors".to_string(),
+        required: asset.required,
+        installed,
+        valid,
+        size_bytes,
+        sha256: asset.sha256.to_string(),
     })
 }
 
@@ -878,14 +910,22 @@ fn probe_cuda_execution_provider(
 pub fn get_local_ai_status(
     app_handle: &tauri::AppHandle,
     probe_runtime: bool,
+    local_comfy_process: &Mutex<Option<crate::local_comfy::LocalComfyProcess>>,
 ) -> Result<LocalAiStatus> {
     let models_dir = get_models_dir(app_handle)?;
     let gpu = query_nvidia_gpu();
     let (model_dir_writable, model_dir_error) = check_model_dir_writable(&models_dir);
-    let models = LOCAL_AI_MODEL_SPECS
+    let mut models = LOCAL_AI_MODEL_SPECS
         .iter()
         .map(|spec| model_info_for_spec(&models_dir, spec, probe_runtime))
         .collect::<Result<Vec<_>>>()?;
+    for asset in crate::local_comfy::GENERATIVE_ASSETS {
+        models.push(model_info_for_generative_asset(
+            &models_dir,
+            asset,
+            probe_runtime,
+        )?);
+    }
     let (
         cuda_provider_available,
         cuda_provider_error,
@@ -920,11 +960,12 @@ pub fn get_local_ai_status(
         model_dir_writable,
         model_dir_error,
         disk_usage_bytes: model_dir_disk_usage(&models_dir),
-        required_file_types: vec![".onnx".to_string()],
+        required_file_types: vec![".onnx".to_string(), ".safetensors".to_string()],
         runtime_dependencies,
         missing_runtime_dependencies,
         gpu,
         models,
+        local_comfy: crate::local_comfy::status(&models_dir, local_comfy_process),
     })
 }
 
@@ -932,6 +973,15 @@ pub async fn download_local_ai_model(
     app_handle: &tauri::AppHandle,
     model_id: &str,
 ) -> Result<LocalAiModelInfo> {
+    if let Some(asset) = crate::local_comfy::GENERATIVE_ASSETS
+        .iter()
+        .find(|asset| asset.id == model_id)
+    {
+        let models_dir = get_models_dir(app_handle)?;
+        crate::local_comfy::download_generative_asset(app_handle, &models_dir, model_id).await?;
+        return model_info_for_generative_asset(&models_dir, asset, true);
+    }
+
     let spec = find_local_ai_model_spec(model_id)?;
     let models_dir = get_models_dir(app_handle)?;
     let (writable, error) = check_model_dir_writable(&models_dir);
@@ -959,6 +1009,15 @@ pub fn delete_local_ai_model(
     app_handle: &tauri::AppHandle,
     model_id: &str,
 ) -> Result<LocalAiModelInfo> {
+    if let Some(asset) = crate::local_comfy::GENERATIVE_ASSETS
+        .iter()
+        .find(|asset| asset.id == model_id)
+    {
+        let models_dir = get_models_dir(app_handle)?;
+        crate::local_comfy::delete_generative_asset(&models_dir, model_id)?;
+        return model_info_for_generative_asset(&models_dir, asset, true);
+    }
+
     let spec = find_local_ai_model_spec(model_id)?;
     let models_dir = get_models_dir(app_handle)?;
     let model_path = models_dir.join(spec.filename);
