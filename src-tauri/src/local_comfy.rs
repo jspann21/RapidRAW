@@ -537,7 +537,7 @@ async fn upload_image(
     image: &DynamicImage,
 ) -> Result<String> {
     let mut buf = Cursor::new(Vec::new());
-    image.write_to(&mut buf, ImageFormat::Png)?;
+    DynamicImage::ImageRgba8(image.to_rgba8()).write_to(&mut buf, ImageFormat::Png)?;
     let part = multipart::Part::bytes(buf.into_inner())
         .file_name(filename.to_string())
         .mime_str("image/png")?;

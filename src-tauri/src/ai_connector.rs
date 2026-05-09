@@ -43,7 +43,7 @@ pub fn generate_source_id(path_str: &str) -> Result<String> {
 
 fn image_to_base64(img: &DynamicImage) -> Result<String> {
     let mut buf = Cursor::new(Vec::new());
-    img.write_to(&mut buf, ImageFormat::Png)?;
+    DynamicImage::ImageRgba8(img.to_rgba8()).write_to(&mut buf, ImageFormat::Png)?;
     Ok(general_purpose::STANDARD.encode(buf.get_ref()))
 }
 

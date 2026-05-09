@@ -627,7 +627,7 @@ pub async fn invoke_generative_replace_with_mask_def(
         let api_url = "https://api.letshopeitcompiles.com/inpaint";
 
         let mut source_buf = Cursor::new(Vec::new());
-        source_image
+        DynamicImage::ImageRgba8(source_image.to_rgba8())
             .write_to(&mut source_buf, ImageFormat::Png)
             .map_err(|e| e.to_string())?;
         let source_base64 = general_purpose::STANDARD.encode(source_buf.get_ref());
