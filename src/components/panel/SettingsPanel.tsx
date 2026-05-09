@@ -1209,9 +1209,8 @@ export default function SettingsPanel({
                             ? 'Running SDXL self-test...'
                             : '';
   const secondaryLocalAiButtonClass =
-    'bg-surface text-text-primary border border-border-color hover:bg-bg-primary disabled:bg-bg-primary disabled:text-text-secondary disabled:opacity-100';
-  const primaryLocalAiButtonClass =
-    'bg-accent text-button-text shadow-shiny disabled:bg-surface disabled:text-text-secondary disabled:border disabled:border-border-color disabled:shadow-none disabled:opacity-100';
+    'bg-surface text-text-primary border border-border-color hover:bg-bg-primary disabled:text-text-secondary';
+  const primaryLocalAiButtonClass = '';
   const localAiRuntimeDependencies = localAiStatus?.runtimeDependencies || [];
   const missingLocalAiRuntimeDependencies = localAiStatus?.missingRuntimeDependencies || [];
   const missingCudaRuntime = missingLocalAiRuntimeDependencies.some((dependency) => {
