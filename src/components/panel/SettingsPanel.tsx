@@ -528,6 +528,7 @@ export default function SettingsPanel({
   const [testStatus, setTestStatus] = useState<TestStatus>({ message: '', success: null, testing: false });
   const [localAiStatus, setLocalAiStatus] = useState<LocalAiStatus | null>(null);
   const [localAiMessage, setLocalAiMessage] = useState('');
+  const [localAiMessageScope, setLocalAiMessageScope] = useState<'generative' | 'lama' | null>(null);
   const [localAiDownloadProgress, setLocalAiDownloadProgress] = useState<LocalAiDownloadProgress | null>(null);
   const [localAiTask, setLocalAiTask] = useState<LocalAiTask | null>(null);
   const [localAiCudaRuntimePath, setLocalAiCudaRuntimePath] = useState(appSettings?.localAiCudaRuntimePath || '');
@@ -699,6 +700,7 @@ export default function SettingsPanel({
 
   const handleDownloadLocalAiModel = async () => {
     setLocalAiDownloadProgress({ modelName: 'LaMa Inpainting', downloadedBytes: 0, totalBytes: null });
+    setLocalAiMessageScope('lama');
     setLocalAiTask('download');
     setLocalAiMessage('Downloading LaMa inpainting model...');
     try {
@@ -715,6 +717,7 @@ export default function SettingsPanel({
 
   const handleDeleteLocalAiModel = async () => {
     setLocalAiDownloadProgress(null);
+    setLocalAiMessageScope('lama');
     setLocalAiTask('delete');
     setLocalAiMessage('Deleting local model...');
     try {
@@ -730,6 +733,7 @@ export default function SettingsPanel({
 
   const handleRunLocalAiSelfTest = async () => {
     setLocalAiDownloadProgress(null);
+    setLocalAiMessageScope('lama');
     setLocalAiTask('self-test');
     setLocalAiMessage('Running CUDA self-test...');
     try {
@@ -745,6 +749,7 @@ export default function SettingsPanel({
 
   const handleDownloadLocalAiRuntime = async () => {
     setLocalAiDownloadProgress(null);
+    setLocalAiMessageScope('generative');
     setLocalAiTask('runtime-download');
     setLocalAiMessage('Downloading Local GPU SDXL runtime...');
     try {
@@ -761,6 +766,7 @@ export default function SettingsPanel({
 
   const handleDownloadLocalAiGenerativeAssets = async () => {
     setLocalAiDownloadProgress(null);
+    setLocalAiMessageScope('generative');
     setLocalAiTask('generative-download');
     setLocalAiMessage('Downloading Local GPU SDXL models...');
     try {
@@ -777,6 +783,7 @@ export default function SettingsPanel({
 
   const handleDeleteLocalAiGenerativeAssets = async () => {
     setLocalAiDownloadProgress(null);
+    setLocalAiMessageScope('generative');
     setLocalAiTask('generative-delete');
     setLocalAiMessage('Deleting Local GPU SDXL models...');
     try {
@@ -795,6 +802,7 @@ export default function SettingsPanel({
   };
 
   const handleStartLocalAiRuntime = async () => {
+    setLocalAiMessageScope('generative');
     setLocalAiTask('runtime-start');
     setLocalAiMessage('Starting Local GPU SDXL runtime...');
     try {
@@ -809,6 +817,7 @@ export default function SettingsPanel({
   };
 
   const handleStopLocalAiRuntime = async () => {
+    setLocalAiMessageScope('generative');
     setLocalAiTask('runtime-stop');
     setLocalAiMessage('Stopping Local GPU SDXL runtime...');
     try {
@@ -824,6 +833,7 @@ export default function SettingsPanel({
 
   const handleDeleteLocalAiRuntime = async () => {
     setLocalAiDownloadProgress(null);
+    setLocalAiMessageScope('generative');
     setLocalAiTask('runtime-delete');
     setLocalAiMessage('Deleting Local GPU SDXL runtime...');
     try {
@@ -838,6 +848,7 @@ export default function SettingsPanel({
   };
 
   const handleRunLocalGenerativeSelfTest = async () => {
+    setLocalAiMessageScope('generative');
     setLocalAiTask('generative-test');
     setLocalAiMessage('Running Local GPU SDXL self-test...');
     try {
@@ -852,6 +863,7 @@ export default function SettingsPanel({
   };
 
   const handleLocalAiRuntimePathSave = async () => {
+    setLocalAiMessageScope('generative');
     setLocalAiTask('save-runtime');
     setLocalAiMessage('Saving CUDA runtime paths...');
     try {
@@ -1160,12 +1172,8 @@ export default function SettingsPanel({
         : '';
   const isLocalAiBusy = localAiTask !== null;
   const lowerLocalAiMessage = localAiMessage.toLowerCase();
-  const isLocalAiGenerativeMessage =
-    !!localAiMessage &&
-    (lowerLocalAiMessage.includes('sdxl') ||
-      lowerLocalAiMessage.includes('runtime') ||
-      lowerLocalAiMessage.includes('generative'));
-  const isLocalAiLamaMessage = !!localAiMessage && !isLocalAiGenerativeMessage;
+  const isLocalAiGenerativeMessage = !!localAiMessage && localAiMessageScope === 'generative';
+  const isLocalAiLamaMessage = !!localAiMessage && localAiMessageScope === 'lama';
   const localAiLamaDownloadButtonLabel =
     localAiTask === 'download'
       ? localAiDownloadPercent === null
