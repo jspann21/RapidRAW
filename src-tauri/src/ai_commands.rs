@@ -498,9 +498,15 @@ pub async fn run_local_generative_self_test(
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
     let models_dir = ai_processing::get_models_dir(&app_handle).map_err(|e| e.to_string())?;
-    local_comfy::run_self_test(&app_handle, &models_dir, &state.local_comfy_process)
-        .await
-        .map_err(|e| e.to_string())
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    local_comfy::run_self_test(
+        &app_handle,
+        &models_dir,
+        &state.local_comfy_process,
+        &settings.local_ai_generation_settings,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -578,6 +584,7 @@ pub async fn invoke_generative_replace_with_mask_def(
             &source_image,
             &mask_bitmap,
             patch_definition.prompt,
+            &settings.local_ai_generation_settings,
         )
         .await
         .map_err(|e| e.to_string())?

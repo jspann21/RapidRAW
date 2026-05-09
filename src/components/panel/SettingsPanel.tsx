@@ -171,6 +171,19 @@ type LocalAiTask =
   | 'runtime-delete'
   | 'generative-test';
 
+interface LocalAiGenerationSettings {
+  steps: number;
+  cfg: number;
+  samplerName: string;
+  scheduler: string;
+  denoise: number;
+  cropTarget: number;
+  maskBlendPixels: number;
+  controlnetStrength: number;
+  negativePrompt: string;
+  seed: number | null;
+}
+
 interface MyLens {
   maker: string;
   model: string;
@@ -229,6 +242,35 @@ const backendOptions: OptionItem<string>[] = [
   { value: 'dx12', label: 'DirectX 12' },
   { value: 'metal', label: 'Metal' },
   { value: 'gl', label: 'OpenGL' },
+];
+
+const localAiGenerationDefaults: LocalAiGenerationSettings = {
+  steps: 8,
+  cfg: 1,
+  samplerName: 'euler',
+  scheduler: 'ddim_uniform',
+  denoise: 1,
+  cropTarget: 1280,
+  maskBlendPixels: 32,
+  controlnetStrength: 1,
+  negativePrompt: 'blur, low quality, distortion, watermark',
+  seed: null,
+};
+
+const localAiSamplerOptions: OptionItem<string>[] = [
+  { value: 'euler', label: 'Euler' },
+  { value: 'euler_ancestral', label: 'Euler Ancestral' },
+  { value: 'dpmpp_2m', label: 'DPM++ 2M' },
+  { value: 'dpmpp_sde', label: 'DPM++ SDE' },
+  { value: 'dpmpp_2m_sde', label: 'DPM++ 2M SDE' },
+];
+
+const localAiSchedulerOptions: OptionItem<string>[] = [
+  { value: 'ddim_uniform', label: 'DDIM Uniform' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'karras', label: 'Karras' },
+  { value: 'exponential', label: 'Exponential' },
+  { value: 'simple', label: 'Simple' },
 ];
 
 const linearRawOptions: OptionItem<string>[] = [
@@ -660,6 +702,29 @@ export default function SettingsPanel({
   const handleProviderChange = (provider: string) => {
     setAiProvider(provider);
     onSettingsChange({ ...appSettings, aiProvider: provider });
+  };
+
+  const localAiGenerationSettings: LocalAiGenerationSettings = {
+    ...localAiGenerationDefaults,
+    ...(appSettings?.localAiGenerationSettings || {}),
+    seed: appSettings?.localAiGenerationSettings?.seed ?? null,
+  };
+
+  const updateLocalAiGenerationSettings = (patch: Partial<LocalAiGenerationSettings>) => {
+    onSettingsChange({
+      ...appSettings,
+      localAiGenerationSettings: {
+        ...localAiGenerationSettings,
+        ...patch,
+      },
+    });
+  };
+
+  const resetLocalAiGenerationSettings = () => {
+    onSettingsChange({
+      ...appSettings,
+      localAiGenerationSettings: localAiGenerationDefaults,
+    });
   };
 
   const refreshLocalAiStatus = async (probeRuntime = false, task?: LocalAiTask) => {
@@ -2735,23 +2800,190 @@ export default function SettingsPanel({
                                       />
                                       {localAiTask === 'runtime-stop' ? 'Stopping...' : 'Stop Runtime'}
                                     </Button>
+                                    <Button className={secondaryLocalAiButtonClass} disabled={isLocalAiBusy} onClick={resetLocalAiGenerationSettings}>
+                                      <RefreshCw size={16} />
+                                      Reset Generation Defaults
+                                    </Button>
                                   </div>
-                                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-2">
-                                    {localAiGenerativeModels.map((model) => (
-                                      <Text
-                                        key={model.id}
-                                        as="div"
-                                        color={model.installed && model.valid ? TextColors.success : TextColors.info}
-                                        variant={TextVariants.small}
-                                        className="min-w-0 rounded-md bg-bg-primary px-3 py-2"
-                                      >
-                                        <span className="font-medium">{model.name}</span>
-                                        <span className="block break-all text-text-secondary">
-                                          {model.filename} · {model.installed ? formatBytes(model.sizeBytes) : 'Missing'}
-                                        </span>
+                                  <details className="rounded-md bg-bg-primary p-3">
+                                    <summary className="cursor-pointer text-sm font-semibold">Generation settings</summary>
+                                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                                      <label className="space-y-1">
+                                      <Text variant={TextVariants.small} weight={TextWeights.semibold}>
+                                        Steps
                                       </Text>
-                                    ))}
-                                  </div>
+                                      <Input
+                                        disabled={isLocalAiBusy}
+                                        min="1"
+                                        max="60"
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                          updateLocalAiGenerationSettings({ steps: Number(e.target.value) || 1 })
+                                        }
+                                        onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.stopPropagation()}
+                                        type="number"
+                                        value={String(localAiGenerationSettings.steps)}
+                                      />
+                                    </label>
+                                    <label className="space-y-1">
+                                      <Text variant={TextVariants.small} weight={TextWeights.semibold}>
+                                        CFG
+                                      </Text>
+                                      <Input
+                                        disabled={isLocalAiBusy}
+                                        min="0"
+                                        max="20"
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                          updateLocalAiGenerationSettings({ cfg: Number(e.target.value) || 0 })
+                                        }
+                                        onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.stopPropagation()}
+                                        step="0.1"
+                                        type="number"
+                                        value={String(localAiGenerationSettings.cfg)}
+                                      />
+                                    </label>
+                                    <label className="space-y-1">
+                                      <Text variant={TextVariants.small} weight={TextWeights.semibold}>
+                                        Denoise
+                                      </Text>
+                                      <Input
+                                        disabled={isLocalAiBusy}
+                                        min="0"
+                                        max="1"
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                          updateLocalAiGenerationSettings({ denoise: Number(e.target.value) || 0 })
+                                        }
+                                        onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.stopPropagation()}
+                                        step="0.05"
+                                        type="number"
+                                        value={String(localAiGenerationSettings.denoise)}
+                                      />
+                                    </label>
+                                    <label className="space-y-1">
+                                      <Text variant={TextVariants.small} weight={TextWeights.semibold}>
+                                        Crop Target
+                                      </Text>
+                                      <Input
+                                        disabled={isLocalAiBusy}
+                                        min="512"
+                                        max="2048"
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                          updateLocalAiGenerationSettings({ cropTarget: Number(e.target.value) || 512 })
+                                        }
+                                        onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.stopPropagation()}
+                                        step="64"
+                                        type="number"
+                                        value={String(localAiGenerationSettings.cropTarget)}
+                                      />
+                                    </label>
+                                    <label className="space-y-1">
+                                      <Text variant={TextVariants.small} weight={TextWeights.semibold}>
+                                        Mask Blend
+                                      </Text>
+                                      <Input
+                                        disabled={isLocalAiBusy}
+                                        min="0"
+                                        max="128"
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                          updateLocalAiGenerationSettings({ maskBlendPixels: Number(e.target.value) || 0 })
+                                        }
+                                        onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.stopPropagation()}
+                                        type="number"
+                                        value={String(localAiGenerationSettings.maskBlendPixels)}
+                                      />
+                                    </label>
+                                    <label className="space-y-1">
+                                      <Text variant={TextVariants.small} weight={TextWeights.semibold}>
+                                        ControlNet
+                                      </Text>
+                                      <Input
+                                        disabled={isLocalAiBusy}
+                                        min="0"
+                                        max="2"
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                          updateLocalAiGenerationSettings({ controlnetStrength: Number(e.target.value) || 0 })
+                                        }
+                                        onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.stopPropagation()}
+                                        step="0.05"
+                                        type="number"
+                                        value={String(localAiGenerationSettings.controlnetStrength)}
+                                      />
+                                    </label>
+                                    <label className="space-y-1">
+                                      <Text variant={TextVariants.small} weight={TextWeights.semibold}>
+                                        Sampler
+                                      </Text>
+                                      <Dropdown
+                                        disabled={isLocalAiBusy}
+                                        onChange={(value) => updateLocalAiGenerationSettings({ samplerName: value })}
+                                        options={localAiSamplerOptions}
+                                        value={localAiGenerationSettings.samplerName}
+                                      />
+                                    </label>
+                                    <label className="space-y-1">
+                                      <Text variant={TextVariants.small} weight={TextWeights.semibold}>
+                                        Scheduler
+                                      </Text>
+                                      <Dropdown
+                                        disabled={isLocalAiBusy}
+                                        onChange={(value) => updateLocalAiGenerationSettings({ scheduler: value })}
+                                        options={localAiSchedulerOptions}
+                                        value={localAiGenerationSettings.scheduler}
+                                      />
+                                      </label>
+                                    </div>
+                                    <div className="mt-3 grid grid-cols-1 xl:grid-cols-[1fr_220px] gap-3">
+                                      <label className="space-y-1">
+                                      <Text variant={TextVariants.small} weight={TextWeights.semibold}>
+                                        Negative Prompt
+                                      </Text>
+                                      <Input
+                                        disabled={isLocalAiBusy}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                          updateLocalAiGenerationSettings({ negativePrompt: e.target.value })
+                                        }
+                                        onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.stopPropagation()}
+                                        type="text"
+                                        value={localAiGenerationSettings.negativePrompt}
+                                      />
+                                    </label>
+                                    <label className="space-y-1">
+                                      <Text variant={TextVariants.small} weight={TextWeights.semibold}>
+                                        Seed
+                                      </Text>
+                                      <Input
+                                        disabled={isLocalAiBusy}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                          updateLocalAiGenerationSettings({
+                                            seed: e.target.value.trim() ? Number(e.target.value) : null,
+                                          })
+                                        }
+                                        onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.stopPropagation()}
+                                        placeholder="Random"
+                                        type="number"
+                                        value={localAiGenerationSettings.seed === null ? '' : String(localAiGenerationSettings.seed)}
+                                      />
+                                      </label>
+                                    </div>
+                                  </details>
+                                  <details className="rounded-md bg-bg-primary p-3">
+                                    <summary className="cursor-pointer text-sm font-semibold">Model files</summary>
+                                    <div className="mt-3 grid grid-cols-1 xl:grid-cols-3 gap-2">
+                                      {localAiGenerativeModels.map((model) => (
+                                        <Text
+                                          key={model.id}
+                                          as="div"
+                                          color={model.installed && model.valid ? TextColors.success : TextColors.info}
+                                          variant={TextVariants.small}
+                                          className="min-w-0 rounded-md bg-surface px-3 py-2"
+                                        >
+                                          <span className="font-medium">{model.name}</span>
+                                          <span className="block break-all text-text-secondary">
+                                            {model.filename} · {model.installed ? formatBytes(model.sizeBytes) : 'Missing'}
+                                          </span>
+                                        </Text>
+                                      ))}
+                                    </div>
+                                  </details>
                                 </div>
                               </details>
 

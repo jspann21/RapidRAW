@@ -6,10 +6,13 @@ interface InputProps {
   className?: string;
   disabled?: boolean;
   id?: string;
+  max?: string;
+  min?: string;
   onBlur?(e: any): void;
   onChange(e: any): void;
   onKeyDown?(e: any): void;
   placeholder?: string;
+  step?: string;
   type?: string;
   value?: string;
   bgClassName?: string;

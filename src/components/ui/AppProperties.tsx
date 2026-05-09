@@ -161,6 +161,18 @@ export interface AppSettings {
   aiProvider?: string;
   localAiCudaRuntimePath?: string;
   localAiCudnnRuntimePath?: string;
+  localAiGenerationSettings?: {
+    steps?: number;
+    cfg?: number;
+    samplerName?: string;
+    scheduler?: string;
+    denoise?: number;
+    cropTarget?: number;
+    maskBlendPixels?: number;
+    controlnetStrength?: number;
+    negativePrompt?: string;
+    seed?: number | null;
+  };
   decorations?: any;
   editorPreviewResolution?: number;
   enableZoomHifi?: boolean;

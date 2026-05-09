@@ -1,3 +1,4 @@
+use crate::app_settings::LocalAiGenerationSettings;
 use std::fs;
 use std::io::{Cursor, Write};
 use std::net::TcpListener;
@@ -24,7 +25,6 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 const RUNTIME_URL: &str = "https://github.com/comfyanonymous/ComfyUI/releases/latest/download/ComfyUI_windows_portable_nvidia.7z";
 const CROP_AND_STITCH_URL: &str =
     "https://github.com/lquesada/ComfyUI-Inpaint-CropAndStitch/archive/refs/heads/main.zip";
-const NEGATIVE_PROMPT: &str = "blur, low quality, distortion, watermark";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(120);
 const GENERATION_TIMEOUT: Duration = Duration::from_secs(300);
 
@@ -570,13 +570,29 @@ fn mask_to_alpha_image(mask: &GrayImage) -> DynamicImage {
     DynamicImage::ImageRgba8(image)
 }
 
-fn build_workflow(source_name: &str, mask_name: &str, prompt: &str, seed: i64) -> Result<Value> {
+fn build_workflow(
+    source_name: &str,
+    mask_name: &str,
+    prompt: &str,
+    settings: &LocalAiGenerationSettings,
+) -> Result<Value> {
     let mut workflow: Value = serde_json::from_str(WORKFLOW_JSON)?;
+    let seed = settings
+        .seed
+        .unwrap_or_else(|| rand::random::<u32>() as i64);
     workflow["7"]["inputs"]["text"] = json!(prompt);
-    workflow["8"]["inputs"]["text"] = json!(NEGATIVE_PROMPT);
+    workflow["8"]["inputs"]["text"] = json!(settings.negative_prompt);
+    workflow["14"]["inputs"]["strength"] = json!(settings.controlnet_strength.clamp(0.0, 2.0));
     workflow["28"]["inputs"]["seed"] = json!(seed);
+    workflow["28"]["inputs"]["steps"] = json!(settings.steps.clamp(1, 60));
+    workflow["28"]["inputs"]["cfg"] = json!(settings.cfg.clamp(0.0, 20.0));
+    workflow["28"]["inputs"]["sampler_name"] = json!(settings.sampler_name);
+    workflow["28"]["inputs"]["scheduler"] = json!(settings.scheduler);
+    workflow["28"]["inputs"]["denoise"] = json!(settings.denoise.clamp(0.0, 1.0));
     workflow["30"]["inputs"]["image"] = json!(source_name);
+    workflow["36"]["inputs"]["mask_blend_pixels"] = json!(settings.mask_blend_pixels.clamp(0, 128));
     workflow["47"]["inputs"]["image"] = json!(mask_name);
+    workflow["37"]["inputs"]["value"] = json!(settings.crop_target.clamp(512, 2048));
     Ok(workflow)
 }
 
@@ -587,6 +603,7 @@ pub async fn process_inpainting(
     source_image: &DynamicImage,
     mask: &GrayImage,
     prompt: String,
+    generation_settings: &LocalAiGenerationSettings,
 ) -> Result<RgbaImage> {
     let runtime = status(models_dir, process);
     if !runtime.generative_ready {
@@ -603,12 +620,7 @@ pub async fn process_inpainting(
         let mask_name = format!("rapidraw-mask-{}.png", client_id);
         let source_ref = upload_image(&client, port, &source_name, source_image).await?;
         let mask_ref = upload_image(&client, port, &mask_name, &mask_to_alpha_image(mask)).await?;
-        let workflow = build_workflow(
-            &source_ref,
-            &mask_ref,
-            &prompt,
-            rand::random::<u32>() as i64,
-        )?;
+        let workflow = build_workflow(&source_ref, &mask_ref, &prompt, generation_settings)?;
         let prompt_response = client
             .post(format!("http://127.0.0.1:{}/prompt", port))
             .json(&json!({"prompt": workflow, "client_id": client_id}))
@@ -678,6 +690,7 @@ pub async fn run_self_test(
     app_handle: &tauri::AppHandle,
     models_dir: &Path,
     process: &Mutex<Option<LocalComfyProcess>>,
+    generation_settings: &LocalAiGenerationSettings,
 ) -> Result<String> {
     let mut source = RgbaImage::new(256, 256);
     for (x, y, pixel) in source.enumerate_pixels_mut() {
@@ -697,6 +710,7 @@ pub async fn run_self_test(
         &DynamicImage::ImageRgba8(source),
         &mask,
         "neutral studio background".to_string(),
+        generation_settings,
     )
     .await?;
     if output.dimensions() != (256, 256) {

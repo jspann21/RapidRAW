@@ -247,6 +247,38 @@ pub fn default_linear_raw_mode() -> String {
     "auto".to_string()
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LocalAiGenerationSettings {
+    pub steps: u32,
+    pub cfg: f32,
+    pub sampler_name: String,
+    pub scheduler: String,
+    pub denoise: f32,
+    pub crop_target: u32,
+    pub mask_blend_pixels: u32,
+    pub controlnet_strength: f32,
+    pub negative_prompt: String,
+    pub seed: Option<i64>,
+}
+
+impl Default for LocalAiGenerationSettings {
+    fn default() -> Self {
+        Self {
+            steps: 8,
+            cfg: 1.0,
+            sampler_name: "euler".to_string(),
+            scheduler: "ddim_uniform".to_string(),
+            denoise: 1.0,
+            crop_target: 1280,
+            mask_blend_pixels: 32,
+            controlnet_strength: 1.0,
+            negative_prompt: "blur, low quality, distortion, watermark".to_string(),
+            seed: None,
+        }
+    }
+}
+
 pub fn default_tagging_shortcuts_option() -> Option<Vec<String>> {
     Some(vec![
         "portrait".to_string(),
@@ -317,6 +349,8 @@ pub struct AppSettings {
     pub local_ai_cuda_runtime_path: Option<String>,
     #[serde(default)]
     pub local_ai_cudnn_runtime_path: Option<String>,
+    #[serde(default)]
+    pub local_ai_generation_settings: LocalAiGenerationSettings,
     #[serde(default = "default_adjustment_visibility")]
     pub adjustment_visibility: HashMap<String, bool>,
     pub enable_exif_reading: Option<bool>,
@@ -407,6 +441,7 @@ impl Default for AppSettings {
             ai_provider: Some("cpu".to_string()),
             local_ai_cuda_runtime_path: None,
             local_ai_cudnn_runtime_path: None,
+            local_ai_generation_settings: LocalAiGenerationSettings::default(),
             adjustment_visibility: default_adjustment_visibility(),
             enable_exif_reading: Some(false),
             active_tree_section: Some("current".to_string()),
