@@ -2535,93 +2535,118 @@ export default function SettingsPanel({
                                     as AI Connector.
                                   </Text>
                                 </div>
-                                <div className="flex flex-wrap gap-2">
-                                  <Button
-                                    className={primaryLocalAiButtonClass}
-                                    disabled={isLocalAiBusy || !!localAiStatus?.localComfy?.runtimeInstalled}
-                                    onClick={handleDownloadLocalAiRuntime}
-                                  >
-                                    <Download
-                                      size={16}
-                                      className={localAiTask === 'runtime-download' ? 'animate-pulse' : ''}
-                                    />
-                                    {localAiTask === 'runtime-download' ? 'Installing...' : 'Install Runtime'}
-                                  </Button>
-                                  <Button
-                                    className={primaryLocalAiButtonClass}
-                                    disabled={isLocalAiBusy || !localAiStatus?.modelDirWritable || localAiGenerativeModelsReady}
-                                    onClick={handleDownloadLocalAiGenerativeAssets}
-                                  >
-                                    <Download
-                                      size={16}
-                                      className={
-                                        localAiTask === 'generative-download' && !localAiDownloadProgress
-                                          ? 'animate-pulse'
-                                          : ''
-                                      }
-                                    />
-                                    {localAiTask === 'generative-download' ? 'Downloading...' : 'Download Models'}
-                                  </Button>
-                                  <Button
-                                    className={secondaryLocalAiButtonClass}
-                                    disabled={isLocalAiBusy || !localAiGenerativeModels.some((model) => model.installed)}
-                                    onClick={handleDeleteLocalAiGenerativeAssets}
-                                  >
-                                    <Trash2
-                                      size={16}
-                                      className={localAiTask === 'generative-delete' ? 'animate-pulse' : ''}
-                                    />
-                                    {localAiTask === 'generative-delete' ? 'Deleting...' : 'Delete Models'}
-                                  </Button>
-                                  <Button
-                                    className={primaryLocalAiButtonClass}
-                                    disabled={
-                                      isLocalAiBusy ||
-                                      !localAiStatus?.localComfy?.runtimeInstalled ||
-                                      !localAiGenerativeModelsReady ||
-                                      !!localAiStatus?.localComfy?.running
-                                    }
-                                    onClick={handleStartLocalAiRuntime}
-                                  >
-                                    <PlayCircle
-                                      size={16}
-                                      className={localAiTask === 'runtime-start' ? 'animate-pulse' : ''}
-                                    />
-                                    {localAiTask === 'runtime-start' ? 'Starting...' : 'Start'}
-                                  </Button>
-                                  <Button
-                                    className={secondaryLocalAiButtonClass}
-                                    disabled={isLocalAiBusy || !localAiStatus?.localComfy?.running}
-                                    onClick={handleStopLocalAiRuntime}
-                                  >
-                                    <RefreshCw
-                                      size={16}
-                                      className={localAiTask === 'runtime-stop' ? 'animate-spin' : ''}
-                                    />
-                                    {localAiTask === 'runtime-stop' ? 'Stopping...' : 'Stop'}
-                                  </Button>
-                                  <Button
-                                    className={secondaryLocalAiButtonClass}
-                                    disabled={isLocalAiBusy || !localAiStatus?.localComfy?.runtimeInstalled}
-                                    onClick={handleDeleteLocalAiRuntime}
-                                  >
-                                    <Trash2
-                                      size={16}
-                                      className={localAiTask === 'runtime-delete' ? 'animate-pulse' : ''}
-                                    />
-                                    {localAiTask === 'runtime-delete' ? 'Deleting...' : 'Delete Runtime'}
-                                  </Button>
-                                  <Button
-                                    className={primaryLocalAiButtonClass}
-                                    disabled={isLocalAiBusy || !localAiGenerativeReady}
-                                    onClick={handleRunLocalGenerativeSelfTest}
-                                  >
-                                    <PlayCircle
-                                      size={16}
-                                      className={localAiTask === 'generative-test' ? 'animate-pulse' : ''}
-                                    />
-                                    {localAiTask === 'generative-test' ? 'Testing...' : 'Run Test'}
-                                  </Button>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 w-full xl:w-auto">
+                                  <div className="space-y-2">
+                                    <Text variant={TextVariants.small} weight={TextWeights.semibold} className="block">
+                                      Setup
+                                    </Text>
+                                    <div className="flex flex-wrap gap-2">
+                                      <Button
+                                        className={primaryLocalAiButtonClass}
+                                        disabled={isLocalAiBusy || !!localAiStatus?.localComfy?.runtimeInstalled}
+                                        onClick={handleDownloadLocalAiRuntime}
+                                      >
+                                        <Download
+                                          size={16}
+                                          className={localAiTask === 'runtime-download' ? 'animate-pulse' : ''}
+                                        />
+                                        {localAiTask === 'runtime-download' ? 'Installing...' : 'Install Runtime'}
+                                      </Button>
+                                      <Button
+                                        className={primaryLocalAiButtonClass}
+                                        disabled={
+                                          isLocalAiBusy || !localAiStatus?.modelDirWritable || localAiGenerativeModelsReady
+                                        }
+                                        onClick={handleDownloadLocalAiGenerativeAssets}
+                                      >
+                                        <Download
+                                          size={16}
+                                          className={
+                                            localAiTask === 'generative-download' && !localAiDownloadProgress
+                                              ? 'animate-pulse'
+                                              : ''
+                                          }
+                                        />
+                                        {localAiTask === 'generative-download' ? 'Downloading...' : 'Download Models'}
+                                      </Button>
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Text variant={TextVariants.small} weight={TextWeights.semibold} className="block">
+                                      Service
+                                    </Text>
+                                    <div className="flex flex-wrap gap-2">
+                                      <Button
+                                        className={primaryLocalAiButtonClass}
+                                        disabled={
+                                          isLocalAiBusy ||
+                                          !localAiStatus?.localComfy?.runtimeInstalled ||
+                                          !localAiGenerativeModelsReady ||
+                                          !!localAiStatus?.localComfy?.running
+                                        }
+                                        onClick={handleStartLocalAiRuntime}
+                                      >
+                                        <PlayCircle
+                                          size={16}
+                                          className={localAiTask === 'runtime-start' ? 'animate-pulse' : ''}
+                                        />
+                                        {localAiTask === 'runtime-start' ? 'Starting...' : 'Start'}
+                                      </Button>
+                                      <Button
+                                        className={secondaryLocalAiButtonClass}
+                                        disabled={isLocalAiBusy || !localAiStatus?.localComfy?.running}
+                                        onClick={handleStopLocalAiRuntime}
+                                      >
+                                        <RefreshCw
+                                          size={16}
+                                          className={localAiTask === 'runtime-stop' ? 'animate-spin' : ''}
+                                        />
+                                        {localAiTask === 'runtime-stop' ? 'Stopping...' : 'Stop'}
+                                      </Button>
+                                      <Button
+                                        className={primaryLocalAiButtonClass}
+                                        disabled={isLocalAiBusy || !localAiGenerativeReady}
+                                        onClick={handleRunLocalGenerativeSelfTest}
+                                      >
+                                        <PlayCircle
+                                          size={16}
+                                          className={localAiTask === 'generative-test' ? 'animate-pulse' : ''}
+                                        />
+                                        {localAiTask === 'generative-test' ? 'Testing...' : 'Run Test'}
+                                      </Button>
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Text variant={TextVariants.small} weight={TextWeights.semibold} className="block">
+                                      Cleanup
+                                    </Text>
+                                    <div className="flex flex-wrap gap-2">
+                                      <Button
+                                        className={secondaryLocalAiButtonClass}
+                                        disabled={isLocalAiBusy || !localAiGenerativeModels.some((model) => model.installed)}
+                                        onClick={handleDeleteLocalAiGenerativeAssets}
+                                      >
+                                        <Trash2
+                                          size={16}
+                                          className={localAiTask === 'generative-delete' ? 'animate-pulse' : ''}
+                                        />
+                                        {localAiTask === 'generative-delete' ? 'Deleting...' : 'Delete Models'}
+                                      </Button>
+                                      <Button
+                                        className={secondaryLocalAiButtonClass}
+                                        disabled={isLocalAiBusy || !localAiStatus?.localComfy?.runtimeInstalled}
+                                        onClick={handleDeleteLocalAiRuntime}
+                                      >
+                                        <Trash2
+                                          size={16}
+                                          className={localAiTask === 'runtime-delete' ? 'animate-pulse' : ''}
+                                        />
+                                        {localAiTask === 'runtime-delete' ? 'Deleting...' : 'Delete Runtime'}
+                                      </Button>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
 
