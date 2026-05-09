@@ -2574,36 +2574,9 @@ export default function SettingsPanel({
 
                                   <div className="space-y-2">
                                     <Text variant={TextVariants.small} weight={TextWeights.semibold} className="block">
-                                      Service
+                                      Verify
                                     </Text>
                                     <div className="flex flex-wrap gap-2">
-                                      <Button
-                                        className={primaryLocalAiButtonClass}
-                                        disabled={
-                                          isLocalAiBusy ||
-                                          !localAiStatus?.localComfy?.runtimeInstalled ||
-                                          !localAiGenerativeModelsReady ||
-                                          !!localAiStatus?.localComfy?.running
-                                        }
-                                        onClick={handleStartLocalAiRuntime}
-                                      >
-                                        <PlayCircle
-                                          size={16}
-                                          className={localAiTask === 'runtime-start' ? 'animate-pulse' : ''}
-                                        />
-                                        {localAiTask === 'runtime-start' ? 'Starting...' : 'Start'}
-                                      </Button>
-                                      <Button
-                                        className={secondaryLocalAiButtonClass}
-                                        disabled={isLocalAiBusy || !localAiStatus?.localComfy?.running}
-                                        onClick={handleStopLocalAiRuntime}
-                                      >
-                                        <RefreshCw
-                                          size={16}
-                                          className={localAiTask === 'runtime-stop' ? 'animate-spin' : ''}
-                                        />
-                                        {localAiTask === 'runtime-stop' ? 'Stopping...' : 'Stop'}
-                                      </Button>
                                       <Button
                                         className={primaryLocalAiButtonClass}
                                         disabled={isLocalAiBusy || !localAiGenerativeReady}
@@ -2732,22 +2705,53 @@ export default function SettingsPanel({
                               )}
 
                               <details className="rounded-md bg-surface p-3">
-                                <summary className="cursor-pointer text-sm font-semibold">Model files</summary>
-                                <div className="mt-3 grid grid-cols-1 xl:grid-cols-3 gap-2">
-                                  {localAiGenerativeModels.map((model) => (
-                                    <Text
-                                      key={model.id}
-                                      as="div"
-                                      color={model.installed && model.valid ? TextColors.success : TextColors.info}
-                                      variant={TextVariants.small}
-                                      className="min-w-0 rounded-md bg-bg-primary px-3 py-2"
+                                <summary className="cursor-pointer text-sm font-semibold">Advanced details</summary>
+                                <div className="mt-3 space-y-3">
+                                  <div className="flex flex-wrap gap-2">
+                                    <Button
+                                      className={primaryLocalAiButtonClass}
+                                      disabled={
+                                        isLocalAiBusy ||
+                                        !localAiStatus?.localComfy?.runtimeInstalled ||
+                                        !localAiGenerativeModelsReady ||
+                                        !!localAiStatus?.localComfy?.running
+                                      }
+                                      onClick={handleStartLocalAiRuntime}
                                     >
-                                      <span className="font-medium">{model.name}</span>
-                                      <span className="block break-all text-text-secondary">
-                                        {model.filename} · {model.installed ? formatBytes(model.sizeBytes) : 'Missing'}
-                                      </span>
-                                    </Text>
-                                  ))}
+                                      <PlayCircle
+                                        size={16}
+                                        className={localAiTask === 'runtime-start' ? 'animate-pulse' : ''}
+                                      />
+                                      {localAiTask === 'runtime-start' ? 'Starting...' : 'Start Runtime'}
+                                    </Button>
+                                    <Button
+                                      className={secondaryLocalAiButtonClass}
+                                      disabled={isLocalAiBusy || !localAiStatus?.localComfy?.running}
+                                      onClick={handleStopLocalAiRuntime}
+                                    >
+                                      <RefreshCw
+                                        size={16}
+                                        className={localAiTask === 'runtime-stop' ? 'animate-spin' : ''}
+                                      />
+                                      {localAiTask === 'runtime-stop' ? 'Stopping...' : 'Stop Runtime'}
+                                    </Button>
+                                  </div>
+                                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-2">
+                                    {localAiGenerativeModels.map((model) => (
+                                      <Text
+                                        key={model.id}
+                                        as="div"
+                                        color={model.installed && model.valid ? TextColors.success : TextColors.info}
+                                        variant={TextVariants.small}
+                                        className="min-w-0 rounded-md bg-bg-primary px-3 py-2"
+                                      >
+                                        <span className="font-medium">{model.name}</span>
+                                        <span className="block break-all text-text-secondary">
+                                          {model.filename} · {model.installed ? formatBytes(model.sizeBytes) : 'Missing'}
+                                        </span>
+                                      </Text>
+                                    ))}
+                                  </div>
                                 </div>
                               </details>
 
