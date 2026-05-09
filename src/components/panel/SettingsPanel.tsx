@@ -768,7 +768,7 @@ export default function SettingsPanel({
       setLocalAiMessage('Local GPU SDXL models downloaded and verified.');
       await refreshLocalAiStatus(true);
     } catch (err: unknown) {
-      setLocalAiMessage(`Model download failed: ${err}`);
+      setLocalAiMessage(`SDXL model download failed: ${err}`);
     } finally {
       setLocalAiTask(null);
       setLocalAiDownloadProgress(null);
@@ -788,7 +788,7 @@ export default function SettingsPanel({
       setLocalAiMessage('Local GPU SDXL models deleted.');
       await refreshLocalAiStatus(false);
     } catch (err: unknown) {
-      setLocalAiMessage(`Model delete failed: ${err}`);
+      setLocalAiMessage(`SDXL model delete failed: ${err}`);
     } finally {
       setLocalAiTask(null);
     }
@@ -809,7 +809,7 @@ export default function SettingsPanel({
   };
 
   const handleStopLocalAiRuntime = async () => {
-    setLocalAiTask('runtime-delete');
+    setLocalAiTask('runtime-stop');
     setLocalAiMessage('Stopping Local GPU SDXL runtime...');
     try {
       await invoke(Invokes.StopLocalAiRuntime);
@@ -824,7 +824,7 @@ export default function SettingsPanel({
 
   const handleDeleteLocalAiRuntime = async () => {
     setLocalAiDownloadProgress(null);
-    setLocalAiTask('runtime-stop');
+    setLocalAiTask('runtime-delete');
     setLocalAiMessage('Deleting Local GPU SDXL runtime...');
     try {
       await invoke(Invokes.DeleteLocalAiRuntime);
@@ -1159,6 +1159,21 @@ export default function SettingsPanel({
         ? `Downloading ${formatBytes(localAiDownloadProgress.downloadedBytes)}`
         : '';
   const isLocalAiBusy = localAiTask !== null;
+  const lowerLocalAiMessage = localAiMessage.toLowerCase();
+  const isLocalAiGenerativeMessage =
+    !!localAiMessage &&
+    (lowerLocalAiMessage.includes('sdxl') ||
+      lowerLocalAiMessage.includes('runtime') ||
+      lowerLocalAiMessage.includes('generative'));
+  const isLocalAiLamaMessage = !!localAiMessage && !isLocalAiGenerativeMessage;
+  const localAiLamaDownloadButtonLabel =
+    localAiTask === 'download'
+      ? localAiDownloadPercent === null
+        ? localAiDownloadProgress
+          ? 'Downloading'
+          : 'Download'
+        : `Downloading ${localAiDownloadPercent}%`
+      : 'Download';
   const localAiTaskLabel =
     localAiTask === 'runtime-refresh'
       ? 'Checking CUDA runtime...'
@@ -2705,6 +2720,14 @@ export default function SettingsPanel({
                                   Runtime: {localAiStatus.localComfy.lastError}
                                 </Text>
                               )}
+                              {isLocalAiGenerativeMessage && (
+                                <Text
+                                  color={lowerLocalAiMessage.includes('failed') ? TextColors.error : TextColors.accent}
+                                  className="block"
+                                >
+                                  {localAiMessage}
+                                </Text>
+                              )}
                             </div>
 
                             <div className="p-4 bg-bg-primary rounded-lg border border-border-color space-y-3">
@@ -2746,11 +2769,7 @@ export default function SettingsPanel({
                                       size={16}
                                       className={localAiTask === 'download' && !localAiDownloadProgress ? 'animate-pulse' : ''}
                                     />
-                                    {localAiDownloadPercent === null
-                                      ? localAiDownloadProgress
-                                        ? 'Downloading'
-                                        : 'Download'
-                                      : `Downloading ${localAiDownloadPercent}%`}
+                                    {localAiLamaDownloadButtonLabel}
                                   </Button>
                                   <Button
                                     className={secondaryLocalAiButtonClass}
@@ -2857,9 +2876,9 @@ export default function SettingsPanel({
                                   Model folder: {localAiStatus.modelDirError}
                                 </Text>
                               )}
-                              {localAiMessage && (
+                              {isLocalAiLamaMessage && (
                                 <Text
-                                  color={localAiMessage.includes('failed') ? TextColors.error : TextColors.accent}
+                                  color={lowerLocalAiMessage.includes('failed') ? TextColors.error : TextColors.accent}
                                   className="block"
                                 >
                                   {localAiMessage}
