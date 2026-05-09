@@ -2,7 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'react-toastify';
 import { useEditorStore } from '../store/useEditorStore';
-import { useEditorActions } from './useEditorActions';
+import { debouncedSetHistory, useEditorActions } from './useEditorActions';
 import { Adjustments, AiPatch, MaskContainer, Coord } from '../utils/adjustments';
 import { SubMask } from '../components/panel/right/Masks';
 import { Invokes } from '../components/ui/AppProperties';
@@ -30,6 +30,7 @@ const getTransformAdjustments = (adj: Adjustments) => ({
 export function useAiMasking() {
   const { setAdjustments } = useEditorActions();
   const setEditor = useEditorStore((state) => state.setEditor);
+  const pushHistory = useEditorStore((state) => state.pushHistory);
 
   const updateSubMask = useCallback(
     (subMaskId: string, updatedData: any) => {
@@ -58,9 +59,14 @@ export function useAiMasking() {
 
       const patchDefinition = { ...patch, prompt };
 
-      setAdjustments((prev: Adjustments) => ({
-        ...prev,
-        aiPatches: prev.aiPatches.map((p: AiPatch) => (p.id === patchId ? { ...p, isLoading: true, prompt } : p)),
+      debouncedSetHistory.cancel();
+      setEditor((state) => ({
+        adjustments: {
+          ...state.adjustments,
+          aiPatches: state.adjustments.aiPatches.map((p: AiPatch) =>
+            p.id === patchId ? { ...p, isLoading: true, prompt } : p,
+          ),
+        },
       }));
 
       setEditor({ isGeneratingAi: true });
@@ -76,9 +82,9 @@ export function useAiMasking() {
         const newPatchData = JSON.parse(newPatchDataJson);
         patchesSentToBackend.delete(patchId);
 
-        setAdjustments((prev: Adjustments) => ({
-          ...prev,
-          aiPatches: prev.aiPatches.map((p: AiPatch) =>
+        const completedAdjustments = {
+          ...useEditorStore.getState().adjustments,
+          aiPatches: useEditorStore.getState().adjustments.aiPatches.map((p: AiPatch) =>
             p.id === patchId
               ? {
                   ...p,
@@ -88,19 +94,25 @@ export function useAiMasking() {
                 }
               : p,
           ),
-        }));
+        };
+        setEditor({ adjustments: completedAdjustments });
+        pushHistory(completedAdjustments);
         setEditor({ activeAiPatchContainerId: null, activeAiSubMaskId: null });
       } catch (err) {
         toast.error(`AI Replace Failed: ${err}`);
-        setAdjustments((prev: Adjustments) => ({
-          ...prev,
-          aiPatches: prev.aiPatches.map((p: AiPatch) => (p.id === patchId ? { ...p, isLoading: false } : p)),
+        setEditor((state) => ({
+          adjustments: {
+            ...state.adjustments,
+            aiPatches: state.adjustments.aiPatches.map((p: AiPatch) =>
+              p.id === patchId ? { ...p, isLoading: false } : p,
+            ),
+          },
         }));
       } finally {
         setEditor({ isGeneratingAi: false });
       }
     },
-    [setAdjustments, setEditor],
+    [pushHistory, setEditor],
   );
 
   const handleQuickErase = useCallback(
@@ -113,10 +125,15 @@ export function useAiMasking() {
       )?.id;
       if (!patchId) return;
 
+      debouncedSetHistory.cancel();
       setEditor({ isGeneratingAi: true });
-      setAdjustments((prev: Partial<Adjustments>) => ({
-        ...prev,
-        aiPatches: prev.aiPatches?.map((p: AiPatch) => (p.id === patchId ? { ...p, isLoading: true } : p)),
+      setEditor((state) => ({
+        adjustments: {
+          ...state.adjustments,
+          aiPatches: state.adjustments.aiPatches?.map((p: AiPatch) =>
+            p.id === patchId ? { ...p, isLoading: true } : p,
+          ),
+        },
       }));
 
       try {
@@ -161,9 +178,9 @@ export function useAiMasking() {
         const newPatchData = JSON.parse(newPatchDataJson);
         patchesSentToBackend.delete(patchId);
 
-        setAdjustments((prev: Partial<Adjustments>) => ({
-          ...prev,
-          aiPatches: prev.aiPatches?.map((p: AiPatch) =>
+        const completedAdjustments = {
+          ...useEditorStore.getState().adjustments,
+          aiPatches: useEditorStore.getState().adjustments.aiPatches?.map((p: AiPatch) =>
             p.id === patchId
               ? {
                   ...p,
@@ -175,19 +192,25 @@ export function useAiMasking() {
                 }
               : p,
           ),
-        }));
+        };
+        setEditor({ adjustments: completedAdjustments });
+        pushHistory(completedAdjustments);
         setEditor({ activeAiPatchContainerId: null, activeAiSubMaskId: null });
       } catch (err: any) {
         toast.error(`Quick Erase Failed: ${err.message || String(err)}`);
-        setAdjustments((prev: Partial<Adjustments>) => ({
-          ...prev,
-          aiPatches: prev.aiPatches?.map((p: AiPatch) => (p.id === patchId ? { ...p, isLoading: false } : p)),
+        setEditor((state) => ({
+          adjustments: {
+            ...state.adjustments,
+            aiPatches: state.adjustments.aiPatches?.map((p: AiPatch) =>
+              p.id === patchId ? { ...p, isLoading: false } : p,
+            ),
+          },
         }));
       } finally {
         setEditor({ isGeneratingAi: false });
       }
     },
-    [setAdjustments, setEditor],
+    [pushHistory, setEditor],
   );
 
   const handleDeleteMaskContainer = useCallback(

@@ -1673,7 +1673,6 @@ function SettingsPanel({
 
   const handleGenerateClick = () => {
     if (!container) return;
-    updateContainer(container.id, { prompt });
     onGenerativeReplace(container.id, prompt, effectiveUseInpaint);
   };
 
