@@ -1276,6 +1276,8 @@ export default function SettingsPanel({
   const secondaryLocalAiButtonClass =
     'bg-surface text-text-primary border border-border-color hover:bg-bg-primary disabled:text-text-secondary';
   const primaryLocalAiButtonClass = '';
+  const localAiGroupedButtonClass = 'h-10 w-44 justify-start whitespace-nowrap';
+  const localAiIconButtonClass = `${secondaryLocalAiButtonClass} h-10 w-11 px-0`;
   const localAiRuntimeDependencies = localAiStatus?.runtimeDependencies || [];
   const missingLocalAiRuntimeDependencies = localAiStatus?.missingRuntimeDependencies || [];
   const missingCudaRuntime = missingLocalAiRuntimeDependencies.some((dependency) => {
@@ -2600,50 +2602,86 @@ export default function SettingsPanel({
                                     as AI Connector.
                                   </Text>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 w-full xl:w-auto">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full xl:w-auto">
                                   <div className="space-y-2">
                                     <Text variant={TextVariants.small} weight={TextWeights.semibold} className="block">
                                       Setup
                                     </Text>
-                                    <div className="flex flex-wrap gap-2">
-                                      <Button
-                                        className={primaryLocalAiButtonClass}
-                                        disabled={isLocalAiBusy || !!localAiStatus?.localComfy?.runtimeInstalled}
-                                        onClick={handleDownloadLocalAiRuntime}
-                                      >
-                                        <Download
-                                          size={16}
-                                          className={localAiTask === 'runtime-download' ? 'animate-pulse' : ''}
-                                        />
-                                        {localAiTask === 'runtime-download' ? 'Installing...' : 'Install Runtime'}
-                                      </Button>
-                                      <Button
-                                        className={primaryLocalAiButtonClass}
-                                        disabled={
-                                          isLocalAiBusy || !localAiStatus?.modelDirWritable || localAiGenerativeModelsReady
-                                        }
-                                        onClick={handleDownloadLocalAiGenerativeAssets}
-                                      >
-                                        <Download
-                                          size={16}
-                                          className={
-                                            localAiTask === 'generative-download' && !localAiDownloadProgress
-                                              ? 'animate-pulse'
-                                              : ''
+                                    <div className="space-y-2">
+                                      <div className="flex items-center gap-2">
+                                        <Button
+                                          className={localAiGroupedButtonClass}
+                                          disabled={isLocalAiBusy || !!localAiStatus?.localComfy?.runtimeInstalled}
+                                          onClick={handleDownloadLocalAiRuntime}
+                                        >
+                                          <Download
+                                            size={16}
+                                            className={localAiTask === 'runtime-download' ? 'animate-pulse' : ''}
+                                          />
+                                          {localAiTask === 'runtime-download' ? 'Installing...' : 'Install Runtime'}
+                                        </Button>
+                                        <Button
+                                          className={localAiIconButtonClass}
+                                          data-tooltip="Delete runtime"
+                                          disabled={isLocalAiBusy || !localAiStatus?.localComfy?.runtimeInstalled}
+                                          onClick={handleDeleteLocalAiRuntime}
+                                          title="Delete runtime"
+                                        >
+                                          <Trash2
+                                            size={16}
+                                            className={clsx(
+                                              '!h-4 !w-4 shrink-0',
+                                              localAiTask === 'runtime-delete' && 'animate-pulse',
+                                            )}
+                                          />
+                                        </Button>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Button
+                                          className={localAiGroupedButtonClass}
+                                          disabled={
+                                            isLocalAiBusy ||
+                                            !localAiStatus?.modelDirWritable ||
+                                            localAiGenerativeModelsReady
                                           }
-                                        />
-                                        {localAiTask === 'generative-download' ? 'Downloading...' : 'Download Models'}
-                                      </Button>
+                                          onClick={handleDownloadLocalAiGenerativeAssets}
+                                        >
+                                          <Download
+                                            size={16}
+                                            className={
+                                              localAiTask === 'generative-download' && !localAiDownloadProgress
+                                                ? 'animate-pulse'
+                                                : ''
+                                            }
+                                          />
+                                          {localAiTask === 'generative-download' ? 'Downloading...' : 'Download Models'}
+                                        </Button>
+                                        <Button
+                                          className={localAiIconButtonClass}
+                                          data-tooltip="Delete models"
+                                          disabled={isLocalAiBusy || !localAiGenerativeModels.some((model) => model.installed)}
+                                          onClick={handleDeleteLocalAiGenerativeAssets}
+                                          title="Delete models"
+                                        >
+                                          <Trash2
+                                            size={16}
+                                            className={clsx(
+                                              '!h-4 !w-4 shrink-0',
+                                              localAiTask === 'generative-delete' && 'animate-pulse',
+                                            )}
+                                          />
+                                        </Button>
+                                      </div>
                                     </div>
                                   </div>
 
-                                  <div className="space-y-2">
+                                  <div className="space-y-2 md:pl-4">
                                     <Text variant={TextVariants.small} weight={TextWeights.semibold} className="block">
                                       Verify
                                     </Text>
-                                    <div className="flex flex-wrap gap-2">
+                                    <div className="flex items-start gap-2">
                                       <Button
-                                        className={primaryLocalAiButtonClass}
+                                        className="w-full sm:w-40 justify-start whitespace-nowrap"
                                         disabled={isLocalAiBusy || !localAiGenerativeReady}
                                         onClick={handleRunLocalGenerativeSelfTest}
                                       >
@@ -2656,35 +2694,6 @@ export default function SettingsPanel({
                                     </div>
                                   </div>
 
-                                  <div className="space-y-2">
-                                    <Text variant={TextVariants.small} weight={TextWeights.semibold} className="block">
-                                      Cleanup
-                                    </Text>
-                                    <div className="flex flex-wrap gap-2">
-                                      <Button
-                                        className={secondaryLocalAiButtonClass}
-                                        disabled={isLocalAiBusy || !localAiGenerativeModels.some((model) => model.installed)}
-                                        onClick={handleDeleteLocalAiGenerativeAssets}
-                                      >
-                                        <Trash2
-                                          size={16}
-                                          className={localAiTask === 'generative-delete' ? 'animate-pulse' : ''}
-                                        />
-                                        {localAiTask === 'generative-delete' ? 'Deleting...' : 'Delete Models'}
-                                      </Button>
-                                      <Button
-                                        className={secondaryLocalAiButtonClass}
-                                        disabled={isLocalAiBusy || !localAiStatus?.localComfy?.runtimeInstalled}
-                                        onClick={handleDeleteLocalAiRuntime}
-                                      >
-                                        <Trash2
-                                          size={16}
-                                          className={localAiTask === 'runtime-delete' ? 'animate-pulse' : ''}
-                                        />
-                                        {localAiTask === 'runtime-delete' ? 'Deleting...' : 'Delete Runtime'}
-                                      </Button>
-                                    </div>
-                                  </div>
                                 </div>
                               </div>
 
