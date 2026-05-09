@@ -1201,7 +1201,9 @@ export default function SettingsPanel({
                             ? 'Running SDXL self-test...'
                             : '';
   const secondaryLocalAiButtonClass =
-    'bg-surface text-text-primary border border-border-color hover:bg-bg-primary disabled:text-text-secondary';
+    'bg-surface text-text-primary border border-border-color hover:bg-bg-primary disabled:bg-bg-primary disabled:text-text-secondary disabled:opacity-100';
+  const primaryLocalAiButtonClass =
+    'bg-accent text-button-text shadow-shiny disabled:bg-surface disabled:text-text-secondary disabled:border disabled:border-border-color disabled:shadow-none disabled:opacity-100';
   const localAiRuntimeDependencies = localAiStatus?.runtimeDependencies || [];
   const missingLocalAiRuntimeDependencies = localAiStatus?.missingRuntimeDependencies || [];
   const missingCudaRuntime = missingLocalAiRuntimeDependencies.some((dependency) => {
@@ -2528,7 +2530,7 @@ export default function SettingsPanel({
                                 </div>
                                 <div className="flex flex-wrap gap-2">
                                   <Button
-                                    className={secondaryLocalAiButtonClass}
+                                    className={primaryLocalAiButtonClass}
                                     disabled={isLocalAiBusy || !!localAiStatus?.localComfy?.runtimeInstalled}
                                     onClick={handleDownloadLocalAiRuntime}
                                   >
@@ -2539,6 +2541,7 @@ export default function SettingsPanel({
                                     {localAiTask === 'runtime-download' ? 'Installing...' : 'Install Runtime'}
                                   </Button>
                                   <Button
+                                    className={primaryLocalAiButtonClass}
                                     disabled={isLocalAiBusy || !localAiStatus?.modelDirWritable || localAiGenerativeModelsReady}
                                     onClick={handleDownloadLocalAiGenerativeAssets}
                                   >
@@ -2564,7 +2567,7 @@ export default function SettingsPanel({
                                     {localAiTask === 'generative-delete' ? 'Deleting...' : 'Delete Models'}
                                   </Button>
                                   <Button
-                                    className={secondaryLocalAiButtonClass}
+                                    className={primaryLocalAiButtonClass}
                                     disabled={
                                       isLocalAiBusy ||
                                       !localAiStatus?.localComfy?.runtimeInstalled ||
@@ -2602,6 +2605,7 @@ export default function SettingsPanel({
                                     {localAiTask === 'runtime-delete' ? 'Deleting...' : 'Delete Runtime'}
                                   </Button>
                                   <Button
+                                    className={primaryLocalAiButtonClass}
                                     disabled={isLocalAiBusy || !localAiGenerativeReady}
                                     onClick={handleRunLocalGenerativeSelfTest}
                                   >
@@ -2758,6 +2762,7 @@ export default function SettingsPanel({
                                     {localAiTask === 'model-refresh' ? 'Refreshing...' : 'Refresh'}
                                   </Button>
                                   <Button
+                                    className={primaryLocalAiButtonClass}
                                     disabled={
                                       isLocalAiBusy ||
                                       !localAiStatus?.modelDirWritable ||
@@ -2780,6 +2785,7 @@ export default function SettingsPanel({
                                     {localAiTask === 'delete' ? 'Deleting...' : 'Delete'}
                                   </Button>
                                   <Button
+                                    className={primaryLocalAiButtonClass}
                                     disabled={isLocalAiBusy || !localAiPrerequisitesReady}
                                     onClick={handleRunLocalAiSelfTest}
                                   >
