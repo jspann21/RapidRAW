@@ -2805,9 +2805,9 @@ export default function SettingsPanel({
                                       Reset Generation Defaults
                                     </Button>
                                   </div>
-                                  <details className="rounded-md bg-bg-primary p-3">
-                                    <summary className="cursor-pointer text-sm font-semibold">Generation settings</summary>
-                                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                                  <div className="space-y-3 rounded-md bg-bg-primary p-3">
+                                    <Text weight={TextWeights.semibold}>Generation settings</Text>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
                                       <label className="space-y-1">
                                       <Text variant={TextVariants.small} weight={TextWeights.semibold}>
                                         Steps
@@ -2964,10 +2964,10 @@ export default function SettingsPanel({
                                       />
                                       </label>
                                     </div>
-                                  </details>
-                                  <details className="rounded-md bg-bg-primary p-3">
-                                    <summary className="cursor-pointer text-sm font-semibold">Model files</summary>
-                                    <div className="mt-3 grid grid-cols-1 xl:grid-cols-3 gap-2">
+                                  </div>
+                                  <div className="space-y-3 rounded-md bg-bg-primary p-3">
+                                    <Text weight={TextWeights.semibold}>Model files</Text>
+                                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-2">
                                       {localAiGenerativeModels.map((model) => (
                                         <Text
                                           key={model.id}
@@ -2983,7 +2983,7 @@ export default function SettingsPanel({
                                         </Text>
                                       ))}
                                     </div>
-                                  </details>
+                                  </div>
                                 </div>
                               </details>
 
