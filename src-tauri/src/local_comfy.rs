@@ -594,28 +594,36 @@ pub async fn process_inpainting(
             "Local GPU generative setup is incomplete. Install the SDXL runtime and required models in Settings."
         ));
     }
+    let was_running = process.lock().unwrap().is_some();
     let port = start_runtime(app_handle, models_dir, process).await?;
     let client = Client::new();
-    let client_id = Uuid::new_v4().to_string();
-    let source_name = format!("rapidraw-source-{}.png", client_id);
-    let mask_name = format!("rapidraw-mask-{}.png", client_id);
-    let source_ref = upload_image(&client, port, &source_name, source_image).await?;
-    let mask_ref = upload_image(&client, port, &mask_name, &mask_to_alpha_image(mask)).await?;
-    let workflow = build_workflow(
-        &source_ref,
-        &mask_ref,
-        &prompt,
-        rand::random::<u32>() as i64,
-    )?;
-    let prompt_response = client
-        .post(format!("http://127.0.0.1:{}/prompt", port))
-        .json(&json!({"prompt": workflow, "client_id": client_id}))
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<PromptResponse>()
-        .await?;
-    fetch_prompt_result(&client, port, &prompt_response.prompt_id).await
+    let result = async {
+        let client_id = Uuid::new_v4().to_string();
+        let source_name = format!("rapidraw-source-{}.png", client_id);
+        let mask_name = format!("rapidraw-mask-{}.png", client_id);
+        let source_ref = upload_image(&client, port, &source_name, source_image).await?;
+        let mask_ref = upload_image(&client, port, &mask_name, &mask_to_alpha_image(mask)).await?;
+        let workflow = build_workflow(
+            &source_ref,
+            &mask_ref,
+            &prompt,
+            rand::random::<u32>() as i64,
+        )?;
+        let prompt_response = client
+            .post(format!("http://127.0.0.1:{}/prompt", port))
+            .json(&json!({"prompt": workflow, "client_id": client_id}))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<PromptResponse>()
+            .await?;
+        fetch_prompt_result(&client, port, &prompt_response.prompt_id).await
+    }
+    .await;
+    if !was_running {
+        let _ = stop_runtime(process);
+    }
+    result
 }
 
 async fn fetch_prompt_result(client: &Client, port: u16, prompt_id: &str) -> Result<RgbaImage> {
