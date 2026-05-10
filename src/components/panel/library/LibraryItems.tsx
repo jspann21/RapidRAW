@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Image as ImageIcon, Folder, FolderOpen } from 'lucide-react';
+import { Cloud, Image as ImageIcon, Folder, FolderOpen } from 'lucide-react';
 import { Star as StarIcon } from 'lucide-react';
 import { COLOR_LABELS, Color } from '../../../utils/adjustments';
 import { ThumbnailAspectRatio, ImageFile } from '../../ui/AppProperties';
@@ -9,6 +9,7 @@ import { TextColors, TextVariants, TextWeights, TEXT_COLOR_KEYS } from '../../..
 import { ColumnWidths } from '../MainLibrary';
 import { useProcessStore } from '../../../store/useProcessStore';
 import { useLibraryStore } from '../../../store/useLibraryStore';
+import { useGooglePhotosStore } from '../../../store/useGooglePhotosStore';
 
 interface ImageLayer {
   id: string;
@@ -103,6 +104,7 @@ const ThumbnailComponent = ({
   const colorTag = tags?.find((t: string) => t.startsWith('color:'))?.substring(6);
   const colorLabel = COLOR_LABELS.find((c: Color) => c.name === colorTag);
   const isDragging = useLibraryStore((s) => s.draggedImagePaths.includes(path));
+  const isSyncedToGooglePhotos = useGooglePhotosStore((s) => !!s.syncIndex[path] || path.startsWith('googlephotos://'));
 
   return (
     <div
@@ -197,6 +199,14 @@ const ThumbnailComponent = ({
           </Text>
         )}
       </div>
+      {isSyncedToGooglePhotos && (
+        <div
+          className="absolute bottom-1.5 right-1.5 rounded-full bg-black/60 p-1 shadow-md backdrop-blur-xs"
+          data-tooltip="Synced to Google Photos"
+        >
+          <Cloud size={13} className="text-white" />
+        </div>
+      )}
     </div>
   );
 };
@@ -278,6 +288,7 @@ const ListItemComponent = ({
 
   const colorTag = tags?.find((t: string) => t.startsWith('color:'))?.substring(6);
   const colorLabel = COLOR_LABELS.find((c: Color) => c.name === colorTag);
+  const isSyncedToGooglePhotos = useGooglePhotosStore((s) => !!s.syncIndex[path] || path.startsWith('googlephotos://'));
 
   const dateObj = new Date(modified > 1e11 ? modified : modified * 1000);
   const dateStr =
@@ -366,6 +377,9 @@ const ListItemComponent = ({
           >
             VC
           </Text>
+        )}
+        {isSyncedToGooglePhotos && (
+          <Cloud size={13} className="shrink-0 text-accent" data-tooltip="Synced to Google Photos" />
         )}
       </div>
 

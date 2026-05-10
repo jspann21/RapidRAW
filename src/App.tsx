@@ -23,6 +23,7 @@ import { useUIStore } from './store/useUIStore';
 import { useLibraryStore } from './store/useLibraryStore';
 import { useEditorStore } from './store/useEditorStore';
 import { useProcessStore } from './store/useProcessStore';
+import { GOOGLE_PHOTOS_FOLDER_PATH, useGooglePhotosStore } from './store/useGooglePhotosStore';
 import { useShallow } from 'zustand/react/shallow';
 
 import { useThumbnails } from './hooks/useThumbnails';
@@ -324,6 +325,7 @@ function App() {
     handleBackToLibrary,
     handleImageSelect,
     handleSelectSubfolder,
+    handleSelectGooglePhotosAlbum,
     handleOpenFolder,
     handleContinueSession,
   } = useAppNavigation({
@@ -344,10 +346,14 @@ function App() {
   const sortedImageList = useSortedLibrary();
 
   const handleLibraryRefresh = useCallback(async () => {
+    if (currentFolderPath === GOOGLE_PHOTOS_FOLDER_PATH) {
+      await handleSelectGooglePhotosAlbum();
+      return;
+    }
     if (currentFolderPath) {
       await handleSelectSubfolder(currentFolderPath, false);
     }
-  }, [currentFolderPath, handleSelectSubfolder]);
+  }, [currentFolderPath, handleSelectSubfolder, handleSelectGooglePhotosAlbum]);
 
   const {
     executeDelete,
@@ -720,6 +726,12 @@ function App() {
         setThumbnailSize(settings?.thumbnailSize ?? defaultThumbnailSize);
         if (settings?.thumbnailAspectRatio) setThumbnailAspectRatio(settings.thumbnailAspectRatio);
 
+        if (settings?.googlePhotosIntegrationEnabled) {
+          invoke(Invokes.GooglePhotosGetSyncIndex)
+            .then((index: any) => useGooglePhotosStore.getState().setSyncedEntries(index || {}))
+            .catch((err) => console.error('Failed to load Google Photos sync index:', err));
+        }
+
         if (settings?.pinnedFolders && settings.pinnedFolders.length > 0) {
           try {
             const trees = await invoke(Invokes.GetPinnedFolderTrees, {
@@ -900,6 +912,7 @@ function App() {
           isVisible={uiVisibility.folderTree}
           onContextMenu={handleFolderTreeContextMenu}
           onFolderSelect={(path) => handleSelectSubfolder(path, false)}
+          onGooglePhotosSelect={handleSelectGooglePhotosAlbum}
           onToggleFolder={handleToggleFolder}
           setIsVisible={(value: boolean) =>
             setUI((state) => ({ uiVisibility: { ...state.uiVisibility, folderTree: value } }))

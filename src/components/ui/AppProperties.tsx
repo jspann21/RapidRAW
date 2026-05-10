@@ -62,6 +62,16 @@ export enum Invokes {
   GeneratePresetPreview = 'generate_preset_preview',
   GenerateThumbnailsProgressive = 'generate_thumbnails_progressive',
   GenerateUncroppedPreview = 'generate_uncropped_preview',
+  GooglePhotosCreateAlbum = 'google_photos_create_album',
+  GooglePhotosDisconnect = 'google_photos_disconnect',
+  GooglePhotosGetStatus = 'google_photos_get_status',
+  GooglePhotosGetSyncIndex = 'google_photos_get_sync_index',
+  GooglePhotosListAlbumMedia = 'google_photos_list_album_media',
+  GooglePhotosPollLogin = 'google_photos_poll_login',
+  GooglePhotosRenameAlbum = 'google_photos_rename_album',
+  GooglePhotosStartLogin = 'google_photos_start_login',
+  GooglePhotosSyncFiles = 'google_photos_sync_files',
+  GooglePhotosUnsyncFiles = 'google_photos_unsync_files',
   GetFolderTree = 'get_folder_tree',
   GetFolderChildren = 'get_folder_children',
   GetLogFilePath = 'get_log_file_path',
@@ -215,6 +225,11 @@ export interface AppSettings {
   defaultNonRawTonemapper?: string;
   copyPasteSettings?: CopyPasteSettings;
   enableFocusMode?: boolean;
+  googlePhotosIntegrationEnabled?: boolean;
+  googlePhotosClientId?: string;
+  googlePhotosClientSecret?: string;
+  googlePhotosAlbumId?: string | null;
+  googlePhotosAlbumTitle?: string;
 }
 
 export interface BrushSettings {
@@ -249,6 +264,10 @@ export interface ImageFile {
   tags: Array<string> | null;
   exif: { [key: string]: string } | null;
   is_virtual_copy: boolean;
+  googlePhotosMediaId?: string;
+  googlePhotosProductUrl?: string;
+  googlePhotosBaseUrl?: string;
+  filename?: string;
 }
 
 export interface Option {

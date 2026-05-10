@@ -20,6 +20,7 @@ mod export_processing;
 mod file_management;
 mod formats;
 mod gpu_processing;
+mod google_photos;
 mod image_loader;
 mod image_processing;
 mod lens_correction;
@@ -2336,6 +2337,16 @@ pub fn run() {
             file_management::set_rating_for_paths,
             file_management::import_files,
             file_management::create_virtual_copy,
+            google_photos::google_photos_start_login,
+            google_photos::google_photos_poll_login,
+            google_photos::google_photos_get_status,
+            google_photos::google_photos_get_sync_index,
+            google_photos::google_photos_disconnect,
+            google_photos::google_photos_create_album,
+            google_photos::google_photos_rename_album,
+            google_photos::google_photos_list_album_media,
+            google_photos::google_photos_sync_files,
+            google_photos::google_photos_unsync_files,
             tagging::start_background_indexing,
             tagging::clear_ai_tags,
             tagging::clear_all_tags,

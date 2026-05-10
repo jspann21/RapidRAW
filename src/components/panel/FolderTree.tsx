@@ -1,4 +1,4 @@
-import { Folder, FolderOpen, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Search, X } from 'lucide-react';
+import { Cloud, Folder, FolderOpen, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Search, X } from 'lucide-react';
 import clsx from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useMemo, useEffect, useRef } from 'react';
@@ -8,6 +8,7 @@ import { TEXT_COLOR_KEYS, TextColors, TextVariants, TextWeights } from '../../ty
 // Import our stores
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
+import { GOOGLE_PHOTOS_FOLDER_PATH } from '../../store/useGooglePhotosStore';
 
 export interface FolderTree {
   children: FolderTree[];
@@ -24,6 +25,7 @@ interface FolderTreeProps {
   isVisible: boolean;
   onContextMenu(event: any, path: string | null, isPinned?: boolean): void;
   onFolderSelect(folder: string): void;
+  onGooglePhotosSelect(): void;
   onToggleFolder(folder: string): void;
   setIsVisible(visible: boolean): void;
   style: any;
@@ -282,6 +284,7 @@ export default function FolderTree({
   isVisible,
   onContextMenu,
   onFolderSelect,
+  onGooglePhotosSelect,
   onToggleFolder,
   setIsVisible,
   style,
@@ -306,6 +309,8 @@ export default function FolderTree({
   const pinnedFolders = appSettings?.pinnedFolders || [];
   const activeSection = appSettings?.activeTreeSection || 'current';
   const showImageCounts = appSettings?.enableFolderImageCounts ?? false;
+  const googlePhotosEnabled = appSettings?.googlePhotosIntegrationEnabled ?? false;
+  const googlePhotosAlbumTitle = appSettings?.googlePhotosAlbumTitle || 'RapidRaw';
 
   const handleActiveSectionChange = (section: string | null) => {
     if (appSettings) {
@@ -433,10 +438,7 @@ export default function FolderTree({
             </div>
           </div>
 
-          <div
-            className="flex-1 overflow-y-auto"
-            onContextMenu={handleEmptyAreaContextMenu}
-          >
+          <div className="flex-1 overflow-y-auto" onContextMenu={handleEmptyAreaContextMenu}>
             {hasVisiblePinnedTrees && (
               <>
                 <div>
@@ -534,6 +536,21 @@ export default function FolderTree({
               </div>
             )}
           </div>
+
+          {googlePhotosEnabled && (
+            <button
+              type="button"
+              className={clsx(
+                'mt-2 flex items-center gap-2 p-1.5 rounded-md transition-colors cursor-pointer w-full text-left',
+                selectedPath === GOOGLE_PHOTOS_FOLDER_PATH ? 'bg-surface' : 'hover:bg-card-active',
+              )}
+              onClick={onGooglePhotosSelect}
+              data-tooltip={`Show ${googlePhotosAlbumTitle} in Google Photos`}
+            >
+              <Cloud size={16} className="shrink-0 text-text-secondary" />
+              <span className="truncate select-none flex-1">Google Photos</span>
+            </button>
+          )}
         </div>
       )}
     </div>

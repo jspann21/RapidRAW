@@ -404,6 +404,16 @@ pub struct AppSettings {
     pub default_non_raw_tonemapper: Option<String>,
     #[serde(default)]
     pub enable_focus_mode: Option<bool>,
+    #[serde(default)]
+    pub google_photos_integration_enabled: Option<bool>,
+    #[serde(default)]
+    pub google_photos_client_id: Option<String>,
+    #[serde(default)]
+    pub google_photos_client_secret: Option<String>,
+    #[serde(default)]
+    pub google_photos_album_id: Option<String>,
+    #[serde(default)]
+    pub google_photos_album_title: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -485,6 +495,11 @@ impl Default for AppSettings {
             default_raw_tonemapper: Some("agx".to_string()),
             default_non_raw_tonemapper: Some("basic".to_string()),
             enable_focus_mode: Some(false),
+            google_photos_integration_enabled: Some(false),
+            google_photos_client_id: None,
+            google_photos_client_secret: None,
+            google_photos_album_id: None,
+            google_photos_album_title: Some("RapidRaw".to_string()),
         }
     }
 }

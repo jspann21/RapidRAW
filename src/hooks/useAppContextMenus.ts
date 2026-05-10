@@ -1,9 +1,12 @@
 import { useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { open as openUrl } from '@tauri-apps/plugin-shell';
 import {
   Aperture,
   Check,
   ClipboardPaste,
+  Cloud,
+  CloudOff,
   Copy,
   CopyPlus,
   Edit,
@@ -44,6 +47,7 @@ import TaggingSubMenu from '../context/TaggingSubMenu';
 import { useEditorActions } from './useEditorActions';
 import { useLibraryActions } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
+import { GOOGLE_PHOTOS_FOLDER_PATH, useGooglePhotosStore } from '../store/useGooglePhotosStore';
 
 const RIGHT_PANEL_ORDER = [
   Panel.Metadata,
@@ -69,6 +73,51 @@ export interface UseAppContextMenusProps {
 
 export function useAppContextMenus(props: UseAppContextMenusProps) {
   const { showContextMenu } = useContextMenu();
+  const refreshGooglePhotosSyncIndex = useCallback(async () => {
+    try {
+      const index: any = await invoke(Invokes.GooglePhotosGetSyncIndex);
+      useGooglePhotosStore.getState().setSyncedEntries(index || {});
+    } catch (err) {
+      console.error('Failed to refresh Google Photos sync index:', err);
+    }
+  }, []);
+
+  const handleSyncToGooglePhotos = useCallback(
+    async (paths: string[]) => {
+      try {
+        const result: any = await invoke(Invokes.GooglePhotosSyncFiles, { paths });
+        await refreshGooglePhotosSyncIndex();
+        if (result?.failed?.length) {
+          toast.error(`Synced ${result.synced?.length || 0}; ${result.failed.length} failed.`);
+        } else {
+          toast.success(paths.length === 1 ? 'Synced to Google Photos.' : `Synced ${paths.length} photos to Google Photos.`);
+        }
+      } catch (err) {
+        toast.error(`Failed to sync to Google Photos: ${err}`);
+      }
+    },
+    [refreshGooglePhotosSyncIndex],
+  );
+
+  const handleUnsyncFromGooglePhotos = useCallback(
+    async (paths: string[]) => {
+      try {
+        const result: any = await invoke(Invokes.GooglePhotosUnsyncFiles, { paths });
+        await refreshGooglePhotosSyncIndex();
+        if (useLibraryStore.getState().currentFolderPath === GOOGLE_PHOTOS_FOLDER_PATH) {
+          props.handleLibraryRefresh();
+        }
+        if (result?.failed?.length) {
+          toast.error(`Unsynced ${result.synced?.length || 0}; ${result.failed.length} failed.`);
+        } else {
+          toast.success(paths.length === 1 ? 'Unsynced from Google Photos.' : `Unsynced ${paths.length} photos.`);
+        }
+      } catch (err) {
+        toast.error(`Failed to unsync from Google Photos: ${err}`);
+      }
+    },
+    [props, refreshGooglePhotosSyncIndex],
+  );
 
   const {
     handleAutoAdjustments,
@@ -122,6 +171,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         setEditor,
       } = useEditorStore.getState();
       const { appSettings } = useSettingsStore.getState();
+      const { syncIndex } = useGooglePhotosStore.getState();
       const { setRightPanel, setUI } = useUIStore.getState();
 
       if (!selectedImage) return;
@@ -129,6 +179,9 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       const canUndo = pasteAdjustmentsUndoStack.length > 0 || historyIndex > 0;
       const canRedo = historyIndex < history.length - 1;
       const commonTags = getCommonTags([selectedImage.path]);
+      const googlePhotosEnabled = appSettings?.googlePhotosIntegrationEnabled && appSettings?.googlePhotosAlbumId;
+      const isGooglePhotosItem = selectedImage.path.startsWith('googlephotos://');
+      const isSyncedToGooglePhotos = !!syncIndex[selectedImage.path] || isGooglePhotosItem;
 
       const options: Array<Option> = [
         {
@@ -204,6 +257,22 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           ],
         },
         { type: OPTION_SEPARATOR },
+        ...(googlePhotosEnabled && !isGooglePhotosItem
+          ? [
+              isSyncedToGooglePhotos
+                ? {
+                    label: 'Unsync from Google Photos Album',
+                    icon: CloudOff,
+                    onClick: () => handleUnsyncFromGooglePhotos([selectedImage.path]),
+                  }
+                : {
+                    label: 'Sync to Google Photos',
+                    icon: Cloud,
+                    onClick: () => handleSyncToGooglePhotos([selectedImage.path]),
+                  },
+              { type: OPTION_SEPARATOR },
+            ]
+          : []),
         {
           label: 'Rating',
           icon: Star,
@@ -274,6 +343,8 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       handleRate,
       handleSetColorLabel,
       handleTagsChanged,
+      handleSyncToGooglePhotos,
+      handleUnsyncFromGooglePhotos,
       showContextMenu,
     ],
   );
@@ -286,6 +357,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       const { selectedImage, copiedAdjustments, setEditor } = useEditorStore.getState();
       const { multiSelectedPaths, imageList, libraryActivePath, setLibrary } = useLibraryStore.getState();
       const { appSettings } = useSettingsStore.getState();
+      const { syncIndex } = useGooglePhotosStore.getState();
       const { setUI, setRightPanel } = useUIStore.getState();
       const { setProcess } = useProcessStore.getState();
 
@@ -306,6 +378,32 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
 
       const selectionCount = finalSelection.length;
       const isSingleSelection = selectionCount === 1;
+      const googlePhotosEnabled = appSettings?.googlePhotosIntegrationEnabled && appSettings?.googlePhotosAlbumId;
+      const isGooglePhotosView = useLibraryStore.getState().currentFolderPath === GOOGLE_PHOTOS_FOLDER_PATH;
+      const allSelectedAreSynced = finalSelection.every((selectedPath) => {
+        return selectedPath.startsWith('googlephotos://') || !!syncIndex[selectedPath];
+      });
+
+      if (isGooglePhotosView) {
+        const cloudOptions: Array<Option> = [
+          {
+            label: 'Open in Google Photos',
+            icon: Cloud,
+            disabled: !isSingleSelection || !imageList.find((image) => image.path === finalSelection[0])?.googlePhotosProductUrl,
+            onClick: () => {
+              const productUrl = imageList.find((image) => image.path === finalSelection[0])?.googlePhotosProductUrl;
+              if (productUrl) openUrl(productUrl);
+            },
+          },
+          {
+            label: 'Unsync from Google Photos Album',
+            icon: CloudOff,
+            onClick: () => handleUnsyncFromGooglePhotos(finalSelection),
+          },
+        ];
+        showContextMenu(event.clientX, event.clientY, cloudOptions);
+        return;
+      }
       const isEditingThisImage = selectedImage?.path === path;
       const deleteLabel = isSingleSelection ? 'Delete Image' : `Delete ${selectionCount} Images`;
       const exportLabel = isSingleSelection ? 'Export Image' : `Export ${selectionCount} Images`;
@@ -541,6 +639,23 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           ],
         },
         { type: OPTION_SEPARATOR },
+        ...(googlePhotosEnabled
+          ? [
+              allSelectedAreSynced
+                ? {
+                    label: 'Unsync from Google Photos Album',
+                    icon: CloudOff,
+                    onClick: () => handleUnsyncFromGooglePhotos(finalSelection),
+                  }
+                : {
+                    label: selectionCount === 1 ? 'Sync to Google Photos' : `Sync ${selectionCount} to Google Photos`,
+                    icon: Cloud,
+                    disabled: isGooglePhotosView,
+                    onClick: () => handleSyncToGooglePhotos(finalSelection),
+                  },
+              { type: OPTION_SEPARATOR },
+            ]
+          : []),
         {
           label: copyLabel,
           icon: Copy,
@@ -651,6 +766,8 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       handleSetColorLabel,
       handleTagsChanged,
       handleResetAdjustments,
+      handleSyncToGooglePhotos,
+      handleUnsyncFromGooglePhotos,
       showContextMenu,
       props,
     ],

@@ -5,6 +5,7 @@ import {
   Cpu,
   Download,
   ExternalLink as ExternalLinkIcon,
+  FileEdit,
   HardDrive,
   Server,
   Info,
@@ -28,6 +29,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { relaunch } from '@tauri-apps/plugin-process';
+import { open as openUrl } from '@tauri-apps/plugin-shell';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
 import { useUser } from '@clerk/react';
@@ -288,6 +290,7 @@ const tonemapperOptions: OptionItem<string>[] = [
 const settingCategories = [
   { id: 'general', label: 'General', icon: SlidersHorizontal },
   { id: 'processing', label: 'Processing', icon: Cpu },
+  { id: 'googlePhotos', label: 'Google Photos', icon: Cloud },
   { id: 'shortcuts', label: 'Controls', icon: Keyboard },
 ];
 
@@ -577,6 +580,16 @@ export default function SettingsPanel({
   const [localAiCudnnRuntimePath, setLocalAiCudnnRuntimePath] = useState(appSettings?.localAiCudnnRuntimePath || '');
   const [hasInteractedWithLivePreview, setHasInteractedWithLivePreview] = useState(false);
   const [recordingAction, setRecordingAction] = useState<string | null>(null);
+  const [googlePhotosClientId, setGooglePhotosClientId] = useState(appSettings?.googlePhotosClientId || '');
+  const [googlePhotosClientSecret, setGooglePhotosClientSecret] = useState(
+    appSettings?.googlePhotosClientSecret || '',
+  );
+  const [googlePhotosAlbumTitleInput, setGooglePhotosAlbumTitleInput] = useState(
+    appSettings?.googlePhotosAlbumTitle || 'RapidRaw',
+  );
+  const [googlePhotosBusy, setGooglePhotosBusy] = useState(false);
+  const [googlePhotosMessage, setGooglePhotosMessage] = useState('');
+  const [googlePhotosStatus, setGooglePhotosStatus] = useState<any>(null);
 
   const [aiProvider, setAiProvider] = useState(appSettings?.aiProvider || 'cpu');
   const [aiConnectorAddress, setAiConnectorAddress] = useState<string>(appSettings?.aiConnectorAddress || '');
@@ -644,6 +657,15 @@ export default function SettingsPanel({
     }
     if (appSettings?.localAiCudnnRuntimePath !== localAiCudnnRuntimePath) {
       setLocalAiCudnnRuntimePath(appSettings?.localAiCudnnRuntimePath || '');
+    }
+    if (appSettings?.googlePhotosClientId !== googlePhotosClientId) {
+      setGooglePhotosClientId(appSettings?.googlePhotosClientId || '');
+    }
+    if (appSettings?.googlePhotosClientSecret !== googlePhotosClientSecret) {
+      setGooglePhotosClientSecret(appSettings?.googlePhotosClientSecret || '');
+    }
+    if (appSettings?.googlePhotosAlbumTitle !== googlePhotosAlbumTitleInput) {
+      setGooglePhotosAlbumTitleInput(appSettings?.googlePhotosAlbumTitle || 'RapidRaw');
     }
     setProcessingSettings({
       editorPreviewResolution: appSettings?.editorPreviewResolution || 1920,
@@ -1193,6 +1215,130 @@ export default function SettingsPanel({
     onSettingsChange({ ...appSettings, keybinds: newKeybinds });
   };
 
+  const refreshGooglePhotosStatus = async () => {
+    try {
+      const status = await invoke(Invokes.GooglePhotosGetStatus);
+      setGooglePhotosStatus(status);
+    } catch (err) {
+      console.error('Failed to load Google Photos status:', err);
+    }
+  };
+
+  const saveGooglePhotosCredentials = async (enabled = appSettings?.googlePhotosIntegrationEnabled ?? false) => {
+    await onSettingsChange({
+      ...appSettings,
+      googlePhotosClientId,
+      googlePhotosClientSecret,
+      googlePhotosAlbumTitle: googlePhotosAlbumTitleInput || 'RapidRaw',
+      googlePhotosIntegrationEnabled: enabled,
+    });
+  };
+
+  const handleGooglePhotosLogin = async () => {
+    setGooglePhotosBusy(true);
+    setGooglePhotosMessage('Opening Google sign-in...');
+    try {
+      await saveGooglePhotosCredentials(true);
+      const start: any = await invoke(Invokes.GooglePhotosStartLogin);
+      await openUrl(start.authorizationUrl);
+
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const poll: any = await invoke(Invokes.GooglePhotosPollLogin, { state: start.state });
+        setGooglePhotosMessage(poll.message);
+        if (poll.complete) {
+          if (!poll.authenticated) {
+            throw new Error(poll.message || 'Google sign-in did not complete.');
+          }
+          await onSettingsChange({
+            ...appSettings,
+            googlePhotosClientId,
+            googlePhotosClientSecret,
+            googlePhotosAlbumTitle: googlePhotosAlbumTitleInput || 'RapidRaw',
+            googlePhotosIntegrationEnabled: true,
+          });
+          await refreshGooglePhotosStatus();
+          return;
+        }
+      }
+      throw new Error('Google sign-in timed out.');
+    } catch (err: any) {
+      setGooglePhotosMessage(err?.message || String(err));
+    } finally {
+      setGooglePhotosBusy(false);
+    }
+  };
+
+  const handleGooglePhotosCreateAlbum = async () => {
+    setGooglePhotosBusy(true);
+    setGooglePhotosMessage('Creating Google Photos album...');
+    try {
+      await saveGooglePhotosCredentials(true);
+      const album: any = await invoke(Invokes.GooglePhotosCreateAlbum, {
+        title: googlePhotosAlbumTitleInput || 'RapidRaw',
+      });
+      await onSettingsChange({
+        ...appSettings,
+        googlePhotosClientId,
+        googlePhotosClientSecret,
+        googlePhotosIntegrationEnabled: true,
+        googlePhotosAlbumId: album.id,
+        googlePhotosAlbumTitle: album.title,
+      });
+      setGooglePhotosAlbumTitleInput(album.title);
+      setGooglePhotosMessage(`Using album "${album.title}".`);
+      await refreshGooglePhotosStatus();
+    } catch (err: any) {
+      setGooglePhotosMessage(err?.message || String(err));
+    } finally {
+      setGooglePhotosBusy(false);
+    }
+  };
+
+  const handleGooglePhotosRenameAlbum = async () => {
+    setGooglePhotosBusy(true);
+    setGooglePhotosMessage('Renaming Google Photos album...');
+    try {
+      const album: any = await invoke(Invokes.GooglePhotosRenameAlbum, {
+        title: googlePhotosAlbumTitleInput || 'RapidRaw',
+      });
+      await onSettingsChange({
+        ...appSettings,
+        googlePhotosClientId,
+        googlePhotosClientSecret,
+        googlePhotosAlbumId: album.id,
+        googlePhotosAlbumTitle: album.title,
+      });
+      setGooglePhotosMessage(`Renamed album to "${album.title}".`);
+      await refreshGooglePhotosStatus();
+    } catch (err: any) {
+      setGooglePhotosMessage(err?.message || String(err));
+    } finally {
+      setGooglePhotosBusy(false);
+    }
+  };
+
+  const handleGooglePhotosDisconnect = async () => {
+    setGooglePhotosBusy(true);
+    setGooglePhotosMessage('Disconnecting Google Photos...');
+    try {
+      await invoke(Invokes.GooglePhotosDisconnect);
+      await onSettingsChange({ ...appSettings, googlePhotosIntegrationEnabled: false });
+      setGooglePhotosStatus(null);
+      setGooglePhotosMessage('Google Photos disconnected.');
+    } catch (err: any) {
+      setGooglePhotosMessage(err?.message || String(err));
+    } finally {
+      setGooglePhotosBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeCategory === 'googlePhotos') {
+      refreshGooglePhotosStatus();
+    }
+  }, [activeCategory]);
+
   const conflictingKeys = useMemo(() => {
     const map = new Map<string, Set<string>>();
     const userKb = appSettings?.keybinds || {};
@@ -1349,7 +1495,7 @@ export default function SettingsPanel({
             </Text>
           </div>
 
-          <div className="relative flex w-full min-[1200px]:w-112.5 p-2 bg-surface rounded-md">
+          <div className="relative flex w-full min-[1200px]:w-150 p-2 bg-surface rounded-md">
             {settingCategories.map((category) => (
               <button
                 key={category.id}
@@ -3329,6 +3475,166 @@ export default function SettingsPanel({
                       message=""
                       title="View Application Logs"
                     />
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {activeCategory === 'googlePhotos' && (
+              <motion.div
+                key="googlePhotos"
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+                transition={{ duration: 0.2 }}
+                className="space-y-10"
+              >
+                <div className="p-6 bg-surface rounded-xl shadow-md">
+                  <Text variant={TextVariants.title} color={TextColors.accent} className="mb-8">
+                    Google Photos
+                  </Text>
+                  <div className="space-y-8">
+                    <SettingItem
+                      label="Integration"
+                      description="Uses Google OAuth for desktop apps with a system browser, PKCE, a local loopback redirect, and app-created Google Photos data scopes."
+                    >
+                      <Switch
+                        checked={appSettings?.googlePhotosIntegrationEnabled ?? false}
+                        id="google-photos-integration-toggle"
+                        label="Enable Google Photos"
+                        onChange={(checked) =>
+                          onSettingsChange({ ...appSettings, googlePhotosIntegrationEnabled: checked })
+                        }
+                      />
+                    </SettingItem>
+
+                    <div className="grid grid-cols-1 min-[900px]:grid-cols-2 gap-4">
+                      <SettingItem
+                        label="OAuth Client ID"
+                        description="Use a Google Cloud OAuth Desktop client ID from the project with Photos Library API enabled."
+                      >
+                        <Input
+                          bgClassName="bg-bg-primary"
+                          id="google-photos-client-id"
+                          onBlur={() => saveGooglePhotosCredentials()}
+                          onChange={(e: any) => setGooglePhotosClientId(e.target.value)}
+                          onKeyDown={(e: any) => e.stopPropagation()}
+                          placeholder="1234567890-abc.apps.googleusercontent.com"
+                          type="text"
+                          value={googlePhotosClientId}
+                        />
+                      </SettingItem>
+
+                      <SettingItem
+                        label="OAuth Client Secret"
+                        description="Optional for public desktop clients. Enter it only if your Google OAuth client requires it."
+                      >
+                        <Input
+                          bgClassName="bg-bg-primary"
+                          id="google-photos-client-secret"
+                          onBlur={() => saveGooglePhotosCredentials()}
+                          onChange={(e: any) => setGooglePhotosClientSecret(e.target.value)}
+                          onKeyDown={(e: any) => e.stopPropagation()}
+                          placeholder="Optional"
+                          type="password"
+                          value={googlePhotosClientSecret}
+                        />
+                      </SettingItem>
+                    </div>
+
+                    <div className="flex flex-wrap gap-3">
+                      <Button
+                        onClick={handleGooglePhotosLogin}
+                        disabled={googlePhotosBusy || !googlePhotosClientId.trim()}
+                      >
+                        <Cloud size={16} className={googlePhotosBusy ? 'animate-pulse' : ''} />
+                        {googlePhotosStatus?.authenticated ? 'Reconnect Google' : 'Sign in with Google'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={handleGooglePhotosDisconnect}
+                        disabled={googlePhotosBusy || !googlePhotosStatus?.authenticated}
+                      >
+                        <WifiOff size={16} />
+                        Disconnect
+                      </Button>
+                    </div>
+
+                    <div className="p-4 bg-bg-primary rounded-lg border border-border-color space-y-3">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <Text variant={TextVariants.heading}>Connection Status</Text>
+                          <Text variant={TextVariants.small}>
+                            {googlePhotosStatus?.authenticated ? 'Connected' : 'Not connected'}
+                            {googlePhotosStatus?.syncedCount ? ` · ${googlePhotosStatus.syncedCount} synced` : ''}
+                          </Text>
+                        </div>
+                        {googlePhotosStatus?.authenticated ? (
+                          <Wifi size={18} className="text-green-400" />
+                        ) : (
+                          <WifiOff size={18} className="text-text-secondary" />
+                        )}
+                      </div>
+                      {googlePhotosMessage && (
+                        <Text color={googlePhotosMessage.toLowerCase().includes('failed') ? TextColors.error : TextColors.accent}>
+                          {googlePhotosMessage}
+                        </Text>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-6 bg-surface rounded-xl shadow-md">
+                  <Text variant={TextVariants.title} color={TextColors.accent} className="mb-8">
+                    Album Management
+                  </Text>
+                  <div className="space-y-8">
+                    <SettingItem
+                      label="RapidRaw Album"
+                      description="RapidRAW can create and manage one app-created Google Photos album. Google Photos API access is limited to albums and media created by this app."
+                    >
+                      <div className="flex flex-col min-[760px]:flex-row gap-3">
+                        <Input
+                          className="grow"
+                          bgClassName="bg-bg-primary"
+                          id="google-photos-album-title"
+                          onBlur={() =>
+                            onSettingsChange({ ...appSettings, googlePhotosAlbumTitle: googlePhotosAlbumTitleInput })
+                          }
+                          onChange={(e: any) => setGooglePhotosAlbumTitleInput(e.target.value)}
+                          onKeyDown={(e: any) => e.stopPropagation()}
+                          placeholder="RapidRaw"
+                          type="text"
+                          value={googlePhotosAlbumTitleInput}
+                        />
+                        <Button
+                          className="min-[760px]:w-38"
+                          disabled={googlePhotosBusy || !googlePhotosStatus?.authenticated}
+                          onClick={handleGooglePhotosCreateAlbum}
+                        >
+                          <Plus size={16} />
+                          Create
+                        </Button>
+                        <Button
+                          className="min-[760px]:w-38"
+                          variant="ghost"
+                          disabled={
+                            googlePhotosBusy || !googlePhotosStatus?.authenticated || !appSettings?.googlePhotosAlbumId
+                          }
+                          onClick={handleGooglePhotosRenameAlbum}
+                        >
+                          <FileEdit size={16} />
+                          Rename
+                        </Button>
+                      </div>
+                    </SettingItem>
+
+                    <Text variant={TextVariants.small} className="block">
+                      Active album:{' '}
+                      <span className="font-mono text-text-primary">
+                        {appSettings?.googlePhotosAlbumTitle || googlePhotosStatus?.albumTitle || 'RapidRaw'}
+                      </span>
+                    </Text>
                   </div>
                 </div>
               </motion.div>

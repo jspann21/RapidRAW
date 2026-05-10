@@ -12,6 +12,7 @@ import { Invokes, LibraryViewMode, ImageFile } from '../components/ui/AppPropert
 import { INITIAL_ADJUSTMENTS, normalizeLoadedAdjustments } from '../utils/adjustments';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { debouncedSave, debouncedSetHistory } from './useEditorActions';
+import { GOOGLE_PHOTOS_FOLDER_PATH, useGooglePhotosStore } from '../store/useGooglePhotosStore';
 
 export interface AppNavigationProps {
   clearThumbnailQueue: () => void;
@@ -53,6 +54,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       expandedFolders: new Set(),
     });
     useUIStore.getState().setUI({ isLibraryExportPanelVisible: false });
+    useGooglePhotosStore.getState().setGooglePhotos({ isAlbumView: false });
   }, []);
 
   const handleBackToLibrary = useCallback(() => {
@@ -105,6 +107,14 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
 
   const handleImageSelect = useCallback(
     async (path: string) => {
+      if (path.startsWith('googlephotos://')) {
+        const image = useLibraryStore.getState().imageList.find((item) => item.path === path);
+        if (image?.googlePhotosProductUrl) {
+          toast.info('Open this photo from Google Photos to edit the cloud copy.');
+        }
+        return;
+      }
+
       const { selectedImage, isSliderDragging, resetHistory, setEditor } = useEditorStore.getState();
       const { setLibrary } = useLibraryStore.getState();
       const { setUI } = useUIStore.getState();
@@ -260,6 +270,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       const { setLibrary, sortCriteria } = useLibraryStore.getState();
       const { setUI } = useUIStore.getState();
       const { setProcess } = useProcessStore.getState();
+      useGooglePhotosStore.getState().setGooglePhotos({ isAlbumView: false });
       const { selectedImage, resetHistory, setEditor } = useEditorStore.getState();
       const libraryViewMode = appSettings?.libraryViewMode;
 
@@ -396,6 +407,54 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     [clearThumbnailQueue, refs],
   );
 
+  const handleSelectGooglePhotosAlbum = useCallback(async () => {
+    const { appSettings } = useSettingsStore.getState();
+    const { setLibrary } = useLibraryStore.getState();
+    const { setProcess } = useProcessStore.getState();
+    const { setGooglePhotos } = useGooglePhotosStore.getState();
+
+    if (!appSettings?.googlePhotosIntegrationEnabled) {
+      toast.error('Enable Google Photos in Settings first.');
+      return;
+    }
+    if (!appSettings?.googlePhotosAlbumId) {
+      toast.error('Create a Google Photos album in Settings first.');
+      return;
+    }
+
+    await invoke('cancel_thumbnail_generation');
+    clearThumbnailQueue();
+    globalImageCache.clear();
+    setLibrary({
+      currentFolderPath: GOOGLE_PHOTOS_FOLDER_PATH,
+      imageList: [],
+      imageRatings: {},
+      isViewLoading: true,
+      libraryActivePath: null,
+      libraryScrollTop: 0,
+      multiSelectedPaths: [],
+    });
+    setGooglePhotos({ isAlbumView: true });
+
+    try {
+      const files: ImageFile[] = await invoke(Invokes.GooglePhotosListAlbumMedia);
+      const thumbnails: Record<string, string> = {};
+      files.forEach((file: ImageFile) => {
+        if (file.googlePhotosBaseUrl) {
+          thumbnails[file.path] = file.googlePhotosBaseUrl;
+        }
+      });
+      setProcess({ thumbnails });
+      setLibrary({ imageList: files });
+    } catch (err) {
+      console.error('Failed to load Google Photos album:', err);
+      toast.error(`Failed to load Google Photos album: ${err}`);
+      setGooglePhotos({ isAlbumView: false });
+    } finally {
+      useLibraryStore.getState().setLibrary({ isViewLoading: false });
+    }
+  }, [clearThumbnailQueue]);
+
   const handleOpenFolder = async () => {
     const { osPlatform } = useSettingsStore.getState();
     const isAndroid = osPlatform === 'android';
@@ -487,6 +546,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     handleBackToLibrary,
     handleImageSelect,
     handleSelectSubfolder,
+    handleSelectGooglePhotosAlbum,
     handleOpenFolder,
     handleContinueSession,
   };
