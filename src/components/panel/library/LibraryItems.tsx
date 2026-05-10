@@ -577,13 +577,21 @@ function rowAreEqual(prev: any, next: any) {
   if (prevRow.type === 'images') {
     if (prevRow.images.length !== nextRow.images.length) return false;
     for (let i = 0; i < nextRow.images.length; i++) {
-      const path = nextRow.images[i].path;
+      const prevImage = prevRow.images[i];
+      const nextImage = nextRow.images[i];
+      const path = nextImage.path;
+
+      if (prevImage.path !== nextImage.path) return false;
+      if (prevImage.modified !== nextImage.modified) return false;
+      if (prevImage.tags !== nextImage.tags) return false;
       if ((prev.activePath === path) !== (next.activePath === path)) return false;
       if (prev.multiSelectedPaths.includes(path) !== next.multiSelectedPaths.includes(path)) return false;
       if (prev.imageRatings?.[path] !== next.imageRatings?.[path]) return false;
     }
   } else if (prevRow.type === 'header') {
-    if (prevRow.isExpanded !== nextRow.isExpanded || prevRow.count !== nextRow.count) return false;
+    if (prevRow.path !== nextRow.path || prevRow.isExpanded !== nextRow.isExpanded || prevRow.count !== nextRow.count) {
+      return false;
+    }
   }
   return true;
 }
