@@ -84,16 +84,41 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
 
   const handleSyncToGooglePhotos = useCallback(
     async (paths: string[]) => {
+      const toastId = toast.loading(
+        paths.length === 1 ? 'Syncing to Google Photos...' : `Syncing ${paths.length} photos to Google Photos...`,
+        {
+          autoClose: false,
+          closeOnClick: false,
+        },
+      );
       try {
         const result: any = await invoke(Invokes.GooglePhotosSyncFiles, { paths });
         await refreshGooglePhotosSyncIndex();
         if (result?.failed?.length) {
-          toast.error(`Synced ${result.synced?.length || 0}; ${result.failed.length} failed.`);
+          toast.update(toastId, {
+            render: `Synced ${result.synced?.length || 0}; ${result.failed.length} failed.`,
+            type: 'error',
+            isLoading: false,
+            autoClose: 5000,
+            closeOnClick: true,
+          });
         } else {
-          toast.success(paths.length === 1 ? 'Synced to Google Photos.' : `Synced ${paths.length} photos to Google Photos.`);
+          toast.update(toastId, {
+            render: paths.length === 1 ? 'Synced to Google Photos.' : `Synced ${paths.length} photos to Google Photos.`,
+            type: 'success',
+            isLoading: false,
+            autoClose: 5000,
+            closeOnClick: true,
+          });
         }
       } catch (err) {
-        toast.error(`Failed to sync to Google Photos: ${err}`);
+        toast.update(toastId, {
+          render: `Failed to sync to Google Photos: ${err}`,
+          type: 'error',
+          isLoading: false,
+          autoClose: 5000,
+          closeOnClick: true,
+        });
       }
     },
     [refreshGooglePhotosSyncIndex],
