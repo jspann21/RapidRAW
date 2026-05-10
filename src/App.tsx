@@ -575,6 +575,14 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const handleGlobalContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener('contextmenu', handleGlobalContextMenu);
+    return () => window.removeEventListener('contextmenu', handleGlobalContextMenu);
+  }, []);
+
+  useEffect(() => {
     if (!isCopied) return;
     const timer = setTimeout(() => setProcess({ isCopied: false }), 1000);
     return () => clearTimeout(timer);
