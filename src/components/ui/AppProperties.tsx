@@ -62,6 +62,7 @@ export enum Invokes {
   GeneratePresetPreview = 'generate_preset_preview',
   GenerateThumbnailsProgressive = 'generate_thumbnails_progressive',
   GenerateUncroppedPreview = 'generate_uncropped_preview',
+  GooglePhotosCancelLogin = 'google_photos_cancel_login',
   GooglePhotosCreateAlbum = 'google_photos_create_album',
   GooglePhotosDisconnect = 'google_photos_disconnect',
   GooglePhotosGetStatus = 'google_photos_get_status',

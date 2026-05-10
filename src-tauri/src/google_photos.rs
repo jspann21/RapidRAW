@@ -186,7 +186,10 @@ fn now_timestamp() -> i64 {
 }
 
 fn app_data_file(app_handle: &AppHandle, filename: &str) -> Result<PathBuf, String> {
-    let dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
     if !dir.exists() {
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     }
@@ -218,13 +221,16 @@ fn write_token(app_handle: &AppHandle, token: &GooglePhotosToken) -> Result<(), 
     fs::write(path, content).map_err(|e| e.to_string())
 }
 
-fn read_sync_index(app_handle: &AppHandle) -> Result<HashMap<String, GooglePhotosSyncEntry>, String> {
+fn read_sync_index(
+    app_handle: &AppHandle,
+) -> Result<HashMap<String, GooglePhotosSyncEntry>, String> {
     let path = sync_index_path(app_handle)?;
     if !path.exists() {
         return Ok(HashMap::new());
     }
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&content).map_err(|e| format!("Failed to read Google Photos sync index: {}", e))
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to read Google Photos sync index: {}", e))
 }
 
 fn write_sync_index(
@@ -266,7 +272,8 @@ fn percent_decode(input: &str) -> String {
     let mut output = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len()
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
             && let Ok(hex) = std::str::from_utf8(&bytes[i + 1..i + 3])
             && let Ok(value) = u8::from_str_radix(hex, 16)
         {
@@ -312,11 +319,26 @@ fn send_oauth_browser_response(stream: &mut std::net::TcpStream, title: &str, bo
     let _ = stream.write_all(response.as_bytes());
 }
 
+fn format_oauth_error(error: &str, description: Option<&str>) -> String {
+    let trimmed_description = description.map(str::trim).filter(|value| !value.is_empty());
+    match (error, trimmed_description) {
+        ("access_denied", Some(description)) => {
+            format!("Google sign-in was denied: {}", description)
+        }
+        ("access_denied", None) => {
+            "Google sign-in was denied or blocked. If Google shows \"Access blocked\", add this account as an OAuth test user or complete OAuth verification in Google Cloud, then try again.".to_string()
+        }
+        (_, Some(description)) => format!("Google sign-in failed: {} ({})", description, error),
+        (_, None) => format!("Google sign-in failed: {}", error),
+    }
+}
+
 fn start_loopback_listener(
     expected_state: String,
     result: Arc<Mutex<Option<Result<String, String>>>>,
 ) -> Result<String, String> {
-    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("Failed to start OAuth listener: {}", e))?;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|e| format!("Failed to start OAuth listener: {}", e))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     listener
         .set_nonblocking(false)
@@ -333,32 +355,37 @@ fn start_loopback_listener(
             let path = first_line.split_whitespace().nth(1).unwrap_or("");
             let params = parse_query(path);
 
-            let response_result = match (params.get("state"), params.get("code"), params.get("error")) {
-                (Some(state), Some(code), _) if state == &expected_state => {
-                    send_oauth_browser_response(
-                        &mut stream,
-                        "RapidRAW Google Photos login complete",
-                        "You can close this browser tab and return to RapidRAW.",
-                    );
-                    Ok(code.to_string())
-                }
-                (Some(state), _, Some(error)) if state == &expected_state => {
-                    send_oauth_browser_response(
-                        &mut stream,
-                        "RapidRAW Google Photos login was not completed",
-                        "Google returned an error. Return to RapidRAW and try again.",
-                    );
-                    Err(error.to_string())
-                }
-                _ => {
-                    send_oauth_browser_response(
-                        &mut stream,
-                        "RapidRAW Google Photos login failed",
-                        "The OAuth response did not match the request that RapidRAW started.",
-                    );
-                    Err("OAuth state mismatch".to_string())
-                }
-            };
+            let response_result =
+                match (params.get("state"), params.get("code"), params.get("error")) {
+                    (Some(state), Some(code), _) if state == &expected_state => {
+                        send_oauth_browser_response(
+                            &mut stream,
+                            "RapidRAW Google Photos login complete",
+                            "You can close this browser tab and return to RapidRAW.",
+                        );
+                        Ok(code.to_string())
+                    }
+                    (Some(state), _, Some(error)) if state == &expected_state => {
+                        let message = format_oauth_error(
+                            error,
+                            params.get("error_description").map(String::as_str),
+                        );
+                        send_oauth_browser_response(
+                            &mut stream,
+                            "RapidRAW Google Photos login was not completed",
+                            &message,
+                        );
+                        Err(message)
+                    }
+                    _ => {
+                        send_oauth_browser_response(
+                            &mut stream,
+                            "RapidRAW Google Photos login failed",
+                            "The OAuth response did not match the request that RapidRAW started.",
+                        );
+                        Err("OAuth state mismatch".to_string())
+                    }
+                };
 
             if let Ok(mut lock) = result.lock() {
                 *lock = Some(response_result);
@@ -416,7 +443,10 @@ async fn exchange_code_for_token(
         .await
         .map_err(|e| format!("Token exchange failed: {}", e))?;
     if !response.status().is_success() {
-        return Err(format!("Token exchange failed: {}", response.text().await.unwrap_or_default()));
+        return Err(format!(
+            "Token exchange failed: {}",
+            response.text().await.unwrap_or_default()
+        ));
     }
     let token_response: TokenResponse = response.json().await.map_err(|e| e.to_string())?;
     let token = GooglePhotosToken {
@@ -429,7 +459,10 @@ async fn exchange_code_for_token(
     write_token(app_handle, &token)
 }
 
-async fn get_access_token(app_handle: &AppHandle, settings: &AppSettings) -> Result<String, String> {
+async fn get_access_token(
+    app_handle: &AppHandle,
+    settings: &AppSettings,
+) -> Result<String, String> {
     let mut token = read_token(app_handle)?.ok_or("Connect to Google Photos first.".to_string())?;
     if token.expires_at > now_timestamp() + 60 {
         return Ok(token.access_token);
@@ -458,7 +491,10 @@ async fn get_access_token(app_handle: &AppHandle, settings: &AppSettings) -> Res
         .await
         .map_err(|e| format!("Token refresh failed: {}", e))?;
     if !response.status().is_success() {
-        return Err(format!("Token refresh failed: {}", response.text().await.unwrap_or_default()));
+        return Err(format!(
+            "Token refresh failed: {}",
+            response.text().await.unwrap_or_default()
+        ));
     }
     let refreshed: TokenResponse = response.json().await.map_err(|e| e.to_string())?;
     token.access_token = refreshed.access_token;
@@ -613,6 +649,12 @@ pub async fn google_photos_poll_login(
 }
 
 #[tauri::command]
+pub fn google_photos_cancel_login(state: String) -> Result<(), String> {
+    PENDING_OAUTH.lock().unwrap().remove(&state);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn google_photos_get_status(app_handle: AppHandle) -> Result<GooglePhotosStatus, String> {
     let settings = load_settings(app_handle.clone())?;
     let authenticated = read_token(&app_handle)?.is_some();
@@ -667,11 +709,19 @@ pub async fn google_photos_create_album(
         .await
         .map_err(|e| e.to_string())?;
     if !response.status().is_success() {
-        return Err(format!("Failed to create Google Photos album: {}", google_json_error(response).await));
+        return Err(format!(
+            "Failed to create Google Photos album: {}",
+            google_json_error(response).await
+        ));
     }
     let album: AlbumResponse = response.json().await.map_err(|e| e.to_string())?;
     settings.google_photos_album_id = Some(album.id.clone());
-    settings.google_photos_album_title = Some(album.title.clone().unwrap_or_else(|| requested_title.clone()));
+    settings.google_photos_album_title = Some(
+        album
+            .title
+            .clone()
+            .unwrap_or_else(|| requested_title.clone()),
+    );
     settings.google_photos_integration_enabled = Some(true);
     save_settings(settings, app_handle)?;
     Ok(GooglePhotosAlbum {
@@ -697,17 +747,29 @@ pub async fn google_photos_rename_album(
 
     let client = reqwest::Client::new();
     let response = client
-        .patch(format!("{}/albums/{}?updateMask=title", PHOTOS_API, percent_encode(&album_id)))
+        .patch(format!(
+            "{}/albums/{}?updateMask=title",
+            PHOTOS_API,
+            percent_encode(&album_id)
+        ))
         .bearer_auth(access_token)
         .json(&json!({ "id": album_id, "title": next_title }))
         .send()
         .await
         .map_err(|e| e.to_string())?;
     if !response.status().is_success() {
-        return Err(format!("Failed to rename Google Photos album: {}", google_json_error(response).await));
+        return Err(format!(
+            "Failed to rename Google Photos album: {}",
+            google_json_error(response).await
+        ));
     }
     let album: AlbumResponse = response.json().await.map_err(|e| e.to_string())?;
-    settings.google_photos_album_title = Some(album.title.clone().unwrap_or_else(|| next_title.to_string()));
+    settings.google_photos_album_title = Some(
+        album
+            .title
+            .clone()
+            .unwrap_or_else(|| next_title.to_string()),
+    );
     save_settings(settings, app_handle)?;
     Ok(GooglePhotosAlbum {
         id: album.id,
@@ -741,7 +803,10 @@ pub async fn google_photos_list_album_media(
             .await
             .map_err(|e| e.to_string())?;
         if !response.status().is_success() {
-            return Err(format!("Failed to list Google Photos album: {}", google_json_error(response).await));
+            return Err(format!(
+                "Failed to list Google Photos album: {}",
+                google_json_error(response).await
+            ));
         }
         let page: SearchResponse = response.json().await.map_err(|e| e.to_string())?;
         if let Some(media_items) = page.media_items {
@@ -806,19 +871,17 @@ pub async fn google_photos_sync_files(
                     .await;
 
                 match response {
-                    Ok(resp) if resp.status().is_success() => {
-                        match resp.text().await {
-                            Ok(token) if !token.trim().is_empty() => upload_tokens.push((path, token)),
-                            Ok(_) => failed.push(GooglePhotosSyncFailure {
-                                path,
-                                message: "Google Photos returned an empty upload token.".to_string(),
-                            }),
-                            Err(err) => failed.push(GooglePhotosSyncFailure {
-                                path,
-                                message: err.to_string(),
-                            }),
-                        }
-                    }
+                    Ok(resp) if resp.status().is_success() => match resp.text().await {
+                        Ok(token) if !token.trim().is_empty() => upload_tokens.push((path, token)),
+                        Ok(_) => failed.push(GooglePhotosSyncFailure {
+                            path,
+                            message: "Google Photos returned an empty upload token.".to_string(),
+                        }),
+                        Err(err) => failed.push(GooglePhotosSyncFailure {
+                            path,
+                            message: err.to_string(),
+                        }),
+                    },
                     Ok(resp) => failed.push(GooglePhotosSyncFailure {
                         path,
                         message: google_json_error(resp).await,
@@ -886,7 +949,9 @@ pub async fn google_photos_sync_files(
                         media_item_id: media_item.id,
                         product_url: media_item.product_url,
                         base_url: media_item.base_url.map(|url| format!("{}=w600-h600", url)),
-                        filename: media_item.filename.unwrap_or_else(|| filename_for_path(&path)),
+                        filename: media_item
+                            .filename
+                            .unwrap_or_else(|| filename_for_path(&path)),
                         synced_at: Utc::now().to_rfc3339(),
                     },
                 );
@@ -894,7 +959,11 @@ pub async fn google_photos_sync_files(
             } else {
                 let message = result
                     .status
-                    .and_then(|status| status.message.or_else(|| status.code.map(|code| code.to_string())))
+                    .and_then(|status| {
+                        status
+                            .message
+                            .or_else(|| status.code.map(|code| code.to_string()))
+                    })
                     .unwrap_or_else(|| "Google Photos did not create this media item.".to_string());
                 failed.push(GooglePhotosSyncFailure { path, message });
             }
@@ -923,7 +992,9 @@ pub async fn google_photos_unsync_files(
         let media_id = if let Some(id) = path.strip_prefix("googlephotos://") {
             id.split('/').next().map(ToString::to_string)
         } else {
-            sync_index.get(&path).map(|entry| entry.media_item_id.clone())
+            sync_index
+                .get(&path)
+                .map(|entry| entry.media_item_id.clone())
         };
 
         if let Some(media_id) = media_id {
@@ -954,7 +1025,10 @@ pub async fn google_photos_unsync_files(
             let message = google_json_error(response).await;
             for media_id in chunk {
                 failed.push(GooglePhotosSyncFailure {
-                    path: path_by_media_id.get(media_id).cloned().unwrap_or_else(|| media_id.clone()),
+                    path: path_by_media_id
+                        .get(media_id)
+                        .cloned()
+                        .unwrap_or_else(|| media_id.clone()),
                     message: message.clone(),
                 });
             }
@@ -963,7 +1037,9 @@ pub async fn google_photos_unsync_files(
 
         for media_id in chunk {
             if let Some(path) = path_by_media_id.get(media_id) {
-                sync_index.retain(|entry_path, entry| entry_path != path && entry.media_item_id != *media_id);
+                sync_index.retain(|entry_path, entry| {
+                    entry_path != path && entry.media_item_id != *media_id
+                });
                 synced.push(path.clone());
             }
         }

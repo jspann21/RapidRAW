@@ -294,6 +294,17 @@ const settingCategories = [
   { id: 'shortcuts', label: 'Controls', icon: Keyboard },
 ];
 
+const GOOGLE_PHOTOS_LOGIN_POLL_INTERVAL_MS = 1500;
+const GOOGLE_PHOTOS_LOGIN_MAX_POLLS = 60;
+const GOOGLE_PHOTOS_BLOCKED_HINT_POLL = 8;
+
+const isGooglePhotosErrorMessage = (message: string) => {
+  const lowerMessage = message.toLowerCase();
+  return ['blocked', 'denied', 'error', 'failed', 'not completed', 'timed out'].some((term) =>
+    lowerMessage.includes(term),
+  );
+};
+
 const KeybindRow = ({
   def,
   currentCombo,
@@ -1237,16 +1248,23 @@ export default function SettingsPanel({
   const handleGooglePhotosLogin = async () => {
     setGooglePhotosBusy(true);
     setGooglePhotosMessage('Opening Google sign-in...');
+    let loginState: string | null = null;
     try {
       await saveGooglePhotosCredentials(true);
       const start: any = await invoke(Invokes.GooglePhotosStartLogin);
+      loginState = start.state;
       await openUrl(start.authorizationUrl);
 
-      for (let attempt = 0; attempt < 120; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        const poll: any = await invoke(Invokes.GooglePhotosPollLogin, { state: start.state });
-        setGooglePhotosMessage(poll.message);
+      for (let attempt = 0; attempt < GOOGLE_PHOTOS_LOGIN_MAX_POLLS; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, GOOGLE_PHOTOS_LOGIN_POLL_INTERVAL_MS));
+        const poll: any = await invoke(Invokes.GooglePhotosPollLogin, { state: loginState });
+        const waitingMessage =
+          attempt >= GOOGLE_PHOTOS_BLOCKED_HINT_POLL
+            ? 'Waiting for Google sign-in. If Google shows "Access blocked", add this Google account as an OAuth test user or complete OAuth verification in Google Cloud, then try again.'
+            : poll.message;
+        setGooglePhotosMessage(poll.complete ? poll.message : waitingMessage);
         if (poll.complete) {
+          loginState = null;
           if (!poll.authenticated) {
             throw new Error(poll.message || 'Google sign-in did not complete.');
           }
@@ -1261,8 +1279,17 @@ export default function SettingsPanel({
           return;
         }
       }
-      throw new Error('Google sign-in timed out.');
+      if (loginState) {
+        await invoke(Invokes.GooglePhotosCancelLogin, { state: loginState }).catch(() => {});
+        loginState = null;
+      }
+      throw new Error(
+        'Google sign-in timed out. If the browser shows "Access blocked", Google did not return to RapidRAW. Add your account as an OAuth test user or complete OAuth verification, then try again.',
+      );
     } catch (err: any) {
+      if (loginState) {
+        await invoke(Invokes.GooglePhotosCancelLogin, { state: loginState }).catch(() => {});
+      }
       setGooglePhotosMessage(err?.message || String(err));
     } finally {
       setGooglePhotosBusy(false);
@@ -3576,7 +3603,7 @@ export default function SettingsPanel({
                         )}
                       </div>
                       {googlePhotosMessage && (
-                        <Text color={googlePhotosMessage.toLowerCase().includes('failed') ? TextColors.error : TextColors.accent}>
+                        <Text color={isGooglePhotosErrorMessage(googlePhotosMessage) ? TextColors.error : TextColors.accent}>
                           {googlePhotosMessage}
                         </Text>
                       )}

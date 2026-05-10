@@ -19,8 +19,8 @@ mod exif_processing;
 mod export_processing;
 mod file_management;
 mod formats;
-mod gpu_processing;
 mod google_photos;
+mod gpu_processing;
 mod image_loader;
 mod image_processing;
 mod lens_correction;
@@ -2339,6 +2339,7 @@ pub fn run() {
             file_management::create_virtual_copy,
             google_photos::google_photos_start_login,
             google_photos::google_photos_poll_login,
+            google_photos::google_photos_cancel_login,
             google_photos::google_photos_get_status,
             google_photos::google_photos_get_sync_index,
             google_photos::google_photos_disconnect,
