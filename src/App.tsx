@@ -341,6 +341,7 @@ function App() {
     handleSetColorLabel,
     refreshAllFolderTrees,
     handleTogglePinFolder,
+    handleRemoveRecentFolder,
   } = useLibraryActions(handleImageSelect);
 
   const sortedImageList = useSortedLibrary();
@@ -511,6 +512,7 @@ function App() {
     refreshImageList: handleLibraryRefresh,
     executeDelete,
     handleTogglePinFolder,
+    handleRemoveRecentFolder,
   });
 
   useTauriListeners({
@@ -919,8 +921,9 @@ function App() {
           isResizing={isResizing}
           isVisible={uiVisibility.folderTree}
           onContextMenu={handleFolderTreeContextMenu}
-          onFolderSelect={(path) => handleSelectSubfolder(path, false)}
+          onFolderSelect={(path, options) => handleSelectSubfolder(path, !!options?.asSessionRoot)}
           onGooglePhotosSelect={handleSelectGooglePhotosAlbum}
+          onRecentFolderRemove={handleRemoveRecentFolder}
           onToggleFolder={handleToggleFolder}
           setIsVisible={(value: boolean) =>
             setUI((state) => ({ uiVisibility: { ...state.uiVisibility, folderTree: value } }))
@@ -1015,6 +1018,7 @@ function App() {
                   handleContinueSession={handleContinueSession}
                   handleGoHome={handleGoHome}
                   handleOpenFolder={handleOpenFolder}
+                  handleOpenSavedFolder={(path) => handleSelectSubfolder(path, true)}
                   handleImportClick={handleImportClick}
                   handleLibraryRefresh={handleLibraryRefresh}
                   handleCopyAdjustments={handleCopyAdjustments}

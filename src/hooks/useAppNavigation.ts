@@ -13,6 +13,7 @@ import { INITIAL_ADJUSTMENTS, normalizeLoadedAdjustments } from '../utils/adjust
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { debouncedSave, debouncedSetHistory } from './useEditorActions';
 import { GOOGLE_PHOTOS_FOLDER_PATH, useGooglePhotosStore } from '../store/useGooglePhotosStore';
+import { nextRecentFolders } from '../utils/folderPaths';
 
 export interface AppNavigationProps {
   clearThumbnailQueue: () => void;
@@ -288,7 +289,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
 
         if (isNewRoot) {
           if (path) {
-            setLibrary({ expandedFolders: new Set([path]) });
+            setLibrary({ rootPath: path, expandedFolders: new Set([path]) });
           }
         } else if (path && expandParents) {
           setLibrary((state) => {
@@ -317,7 +318,13 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
 
         if (isNewRoot) {
           setLibrary({ isTreeLoading: true });
-          handleSettingsChange({ ...appSettings, lastRootPath: path } as any);
+          if (path) {
+            const recentFolders =
+              appSettings?.showRecentFolders === false
+                ? appSettings?.recentFolders || []
+                : nextRecentFolders(appSettings?.recentFolders || [], path, pinnedFolders || []);
+            await handleSettingsChange({ ...appSettings, lastRootPath: path, recentFolders } as any);
+          }
           try {
             const treeData = await invoke(Invokes.GetFolderTree, {
               path,
@@ -487,6 +494,12 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       const root = appSettings.lastRootPath;
       const folderState = appSettings.lastFolderState;
       const pathToSelect = folderState?.currentFolderPath || root;
+      if (appSettings.showRecentFolders !== false) {
+        await handleSettingsChange({
+          ...appSettings,
+          recentFolders: nextRecentFolders(appSettings.recentFolders || [], root, appSettings.pinnedFolders || []),
+        });
+      }
 
       setLibrary({ rootPath: root });
 

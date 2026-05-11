@@ -311,6 +311,10 @@ pub struct AppSettings {
     pub last_root_path: Option<String>,
     #[serde(default)]
     pub pinned_folders: Vec<String>,
+    #[serde(default)]
+    pub recent_folders: Vec<String>,
+    #[serde(default)]
+    pub show_recent_folders: Option<bool>,
     pub editor_preview_resolution: Option<u32>,
     #[serde(default)]
     pub thumbnail_resolution: Option<u32>,
@@ -421,6 +425,8 @@ impl Default for AppSettings {
         Self {
             last_root_path: None,
             pinned_folders: Vec::new(),
+            recent_folders: Vec::new(),
+            show_recent_folders: Some(true),
             thumbnail_resolution: Some(720),
             #[cfg(target_os = "android")]
             editor_preview_resolution: Some(1280),

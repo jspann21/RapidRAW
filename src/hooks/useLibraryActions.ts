@@ -7,6 +7,8 @@ import { Invokes, ImageFile } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { computeSortedLibrary } from './useSortedLibrary';
+import { useUIStore } from '../store/useUIStore';
+import { isSameFolderPath, nextRecentFolders } from '../utils/folderPaths';
 
 export function useLibraryActions(handleImageSelect?: (path: string) => void) {
   const handleRate = useCallback((newRating: number, paths?: string[]) => {
@@ -223,15 +225,27 @@ export function useLibraryActions(handleImageSelect?: (path: string) => void) {
     const { rootPath, expandedFolders, setLibrary } = useLibraryStore.getState();
     const { appSettings } = useSettingsStore.getState();
 
-    if (!rootPath) return;
-
     try {
-      const treeData = await invoke(Invokes.GetFolderTree, {
-        path: rootPath,
-        expandedFolders: Array.from(expandedFolders),
-        showImageCounts: appSettings?.enableFolderImageCounts ?? false,
-      });
-      setLibrary({ folderTree: treeData });
+      if (rootPath) {
+        const treeData = await invoke(Invokes.GetFolderTree, {
+          path: rootPath,
+          expandedFolders: Array.from(expandedFolders),
+          showImageCounts: appSettings?.enableFolderImageCounts ?? false,
+        });
+        setLibrary({ folderTree: treeData });
+      }
+
+      const pinnedFolders = appSettings?.pinnedFolders || [];
+      if (pinnedFolders.length > 0) {
+        const pinnedTrees = await invoke(Invokes.GetPinnedFolderTrees, {
+          paths: pinnedFolders,
+          expandedFolders: Array.from(expandedFolders),
+          showImageCounts: appSettings?.enableFolderImageCounts ?? false,
+        });
+        setLibrary({ pinnedFolderTrees: pinnedTrees });
+      } else {
+        setLibrary({ pinnedFolderTrees: [] });
+      }
     } catch (err) {
       console.error('Failed to refresh folder tree:', err);
     }
@@ -240,26 +254,57 @@ export function useLibraryActions(handleImageSelect?: (path: string) => void) {
   const handleTogglePinFolder = useCallback(async (path: string) => {
     const { appSettings, handleSettingsChange } = useSettingsStore.getState();
     const { expandedFolders, setLibrary } = useLibraryStore.getState();
+    const { setUI } = useUIStore.getState();
     if (!appSettings) return;
 
     const currentPins = appSettings.pinnedFolders || [];
-    const isPinned = currentPins.includes(path);
-    const newPins = isPinned
-      ? currentPins.filter((p: string) => p !== path)
-      : [...currentPins, path].sort((a, b) => a.localeCompare(b));
+    const isPinned = currentPins.some((p: string) => isSameFolderPath(p, path));
 
-    handleSettingsChange({ ...appSettings, pinnedFolders: newPins });
+    const applyPinnedFolders = async (newPins: string[]) => {
+      const recentFolders = isPinned
+        ? appSettings.recentFolders || []
+        : nextRecentFolders(appSettings.recentFolders || [], path, newPins);
+      await handleSettingsChange({ ...appSettings, pinnedFolders: newPins, recentFolders });
 
-    try {
-      const trees = await invoke(Invokes.GetPinnedFolderTrees, {
-        paths: newPins,
-        expandedFolders: Array.from(expandedFolders),
-        showImageCounts: appSettings.enableFolderImageCounts ?? false,
+      try {
+        const trees = await invoke(Invokes.GetPinnedFolderTrees, {
+          paths: newPins,
+          expandedFolders: Array.from(expandedFolders),
+          showImageCounts: appSettings.enableFolderImageCounts ?? false,
+        });
+        setLibrary({ pinnedFolderTrees: trees });
+      } catch (err) {
+        toast.error(`Failed to refresh saved folders: ${err}`);
+      }
+    };
+
+    if (isPinned) {
+      setUI({
+        confirmModalState: {
+          confirmText: 'Remove',
+          confirmVariant: 'destructive',
+          isOpen: true,
+          message: 'This folder will be removed from your saved folders. The folder and images will not be deleted.',
+          onConfirm: () => {
+            applyPinnedFolders(currentPins.filter((p: string) => !isSameFolderPath(p, path)));
+          },
+          title: 'Remove Saved Folder?',
+        },
       });
-      setLibrary({ pinnedFolderTrees: trees });
-    } catch (err) {
-      toast.error(`Failed to refresh pinned folders: ${err}`);
+      return;
     }
+
+    await applyPinnedFolders([...currentPins, path].sort((a, b) => a.localeCompare(b)));
+  }, []);
+
+  const handleRemoveRecentFolder = useCallback(async (path: string) => {
+    const { appSettings, handleSettingsChange } = useSettingsStore.getState();
+    if (!appSettings) return;
+
+    await handleSettingsChange({
+      ...appSettings,
+      recentFolders: (appSettings.recentFolders || []).filter((recentPath) => !isSameFolderPath(recentPath, path)),
+    });
   }, []);
 
   return {
@@ -272,5 +317,6 @@ export function useLibraryActions(handleImageSelect?: (path: string) => void) {
     handleImageClick,
     refreshAllFolderTrees,
     handleTogglePinFolder,
+    handleRemoveRecentFolder,
   };
 }

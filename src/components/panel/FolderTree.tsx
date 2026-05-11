@@ -1,4 +1,15 @@
-import { Cloud, Folder, FolderOpen, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Search, X } from 'lucide-react';
+import {
+  Cloud,
+  Folder,
+  FolderOpen,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronDown,
+  Search,
+  X,
+  History,
+} from 'lucide-react';
 import clsx from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useMemo, useEffect, useRef } from 'react';
@@ -9,6 +20,7 @@ import { TEXT_COLOR_KEYS, TextColors, TextVariants, TextWeights } from '../../ty
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { GOOGLE_PHOTOS_FOLDER_PATH } from '../../store/useGooglePhotosStore';
+import { getFolderDisplayName, isSameFolderPath, normalizeFolderPath } from '../../utils/folderPaths';
 
 export interface FolderTree {
   children: FolderTree[];
@@ -23,9 +35,10 @@ export interface FolderTree {
 interface FolderTreeProps {
   isResizing: boolean;
   isVisible: boolean;
-  onContextMenu(event: any, path: string | null, isPinned?: boolean): void;
-  onFolderSelect(folder: string): void;
+  onContextMenu(event: any, path: string | null, isPinned?: boolean, isRecent?: boolean): void;
+  onFolderSelect(folder: string, options?: { asSessionRoot?: boolean }): void;
   onGooglePhotosSelect(): void;
+  onRecentFolderRemove(folder: string): void;
   onToggleFolder(folder: string): void;
   setIsVisible(visible: boolean): void;
   style: any;
@@ -37,10 +50,11 @@ interface TreeNodeProps {
   isExpanded: boolean;
   node: FolderTree;
   onContextMenu(event: any, path: string, isPinned?: boolean): void;
-  onFolderSelect(folder: string): void;
+  onFolderSelect(folder: string, options?: { asSessionRoot?: boolean }): void;
   onToggle(path: string): void;
   selectedPath: string | null;
   pinnedFolders: string[];
+  selectAsSessionRoot: boolean;
   showImageCounts: boolean;
   isInstantTransition: boolean;
   dragTargetFolderPath: string | null;
@@ -82,20 +96,48 @@ const getAutoExpandedPaths = (node: FolderTree, paths: Set<string>) => {
   }
 };
 
-function SectionHeader({ title, isOpen, onToggle }: { title: string; isOpen: boolean; onToggle: () => void }) {
+function RecentFolderRow({
+  path,
+  isSelected,
+  onContextMenu,
+  onFolderSelect,
+  onRemove,
+}: {
+  path: string;
+  isSelected: boolean;
+  onContextMenu(event: any, path: string, isPinned?: boolean, isRecent?: boolean): void;
+  onFolderSelect(folder: string, options?: { asSessionRoot?: boolean }): void;
+  onRemove(folder: string): void;
+}) {
   return (
-    <Text
-      as="div"
-      variant={TextVariants.small}
-      weight={TextWeights.bold}
-      className="flex items-center w-full px-1 py-1.5 cursor-pointer group"
-      onClick={onToggle}
-      data-tooltip={isOpen ? `Collapse ${title}` : `Expand ${title}`}
-    >
-      <div className="p-0.5 rounded-md transition-colors">
-        {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+    <Text as="div" color={TextColors.primary} weight={TextWeights.medium}>
+      <div
+        className={clsx('group flex items-center gap-2 p-1.5 rounded-md transition-colors cursor-pointer', {
+          'bg-surface': isSelected,
+          'hover:bg-card-active': !isSelected,
+        })}
+        onClick={() => onFolderSelect(path, { asSessionRoot: true })}
+        onContextMenu={(e: any) => onContextMenu(e, path, false, true)}
+        data-folder-path={path}
+      >
+        <div className="p-0.5 rounded-sm transition-colors text-text-secondary">
+          <History size={16} className="shrink-0" />
+        </div>
+        <span className="truncate select-none flex-1" title={path}>
+          {getFolderDisplayName(path)}
+        </span>
+        <button
+          type="button"
+          className="p-0.5 rounded-sm text-text-secondary opacity-0 group-hover:opacity-100 hover:bg-surface-hover transition"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove(path);
+          }}
+          data-tooltip="Remove from recent"
+        >
+          <X size={14} />
+        </button>
       </div>
-      <span className="ml-1 uppercase tracking-wider select-none">{title}</span>
     </Text>
   );
 }
@@ -109,6 +151,7 @@ function TreeNode({
   onToggle,
   selectedPath,
   pinnedFolders,
+  selectAsSessionRoot,
   showImageCounts,
   isInstantTransition,
   dragTargetFolderPath,
@@ -154,7 +197,7 @@ function TreeNode({
   };
 
   const handleNameClick = () => {
-    onFolderSelect(node.path);
+    onFolderSelect(node.path, { asSessionRoot: selectAsSessionRoot });
   };
 
   const handleNameDoubleClick = () => {
@@ -263,6 +306,7 @@ function TreeNode({
                       onToggle={onToggle}
                       selectedPath={selectedPath}
                       pinnedFolders={pinnedFolders}
+                      selectAsSessionRoot={selectAsSessionRoot}
                       showImageCounts={showImageCounts}
                       isInstantTransition={isInstantTransition}
                       dragTargetFolderPath={dragTargetFolderPath}
@@ -285,17 +329,19 @@ export default function FolderTree({
   onContextMenu,
   onFolderSelect,
   onGooglePhotosSelect,
+  onRecentFolderRemove,
   onToggleFolder,
   setIsVisible,
   style,
   isInstantTransition,
 }: FolderTreeProps) {
   // Grab state directly from stores
-  const { appSettings, handleSettingsChange } = useSettingsStore();
+  const { appSettings } = useSettingsStore();
   const {
     folderTree: tree,
     pinnedFolderTrees,
     currentFolderPath: selectedPath,
+    rootPath,
     expandedFolders,
     isTreeLoading: isLoading,
     draggedImagePaths,
@@ -307,16 +353,10 @@ export default function FolderTree({
 
   // Derive variables from settings
   const pinnedFolders = appSettings?.pinnedFolders || [];
-  const activeSection = appSettings?.activeTreeSection || 'current';
   const showImageCounts = appSettings?.enableFolderImageCounts ?? false;
+  const showRecentFolders = appSettings?.showRecentFolders ?? true;
   const googlePhotosEnabled = appSettings?.googlePhotosIntegrationEnabled ?? false;
   const googlePhotosAlbumTitle = appSettings?.googlePhotosAlbumTitle || 'RapidRaw';
-
-  const handleActiveSectionChange = (section: string | null) => {
-    if (appSettings) {
-      handleSettingsChange({ ...appSettings, activeTreeSection: section });
-    }
-  };
 
   const handleEmptyAreaContextMenu = (e: any) => {
     if (e.target === e.currentTarget) {
@@ -339,6 +379,20 @@ export default function FolderTree({
       .filter((t): t is FolderTree => t !== null);
   }, [pinnedFolderTrees, trimmedQuery, isSearching]);
 
+  const visibleRecentFolders = useMemo(() => {
+    if (!showRecentFolders) return [];
+    const pinnedSet = new Set(pinnedFolders.map(normalizeFolderPath));
+    const seen = new Set<string>();
+    return (appSettings?.recentFolders || []).filter((path: string) => {
+      const normalized = normalizeFolderPath(path);
+      if (!path || seen.has(normalized) || pinnedSet.has(normalized)) {
+        return false;
+      }
+      seen.add(normalized);
+      return !isSearching || getFolderDisplayName(path).toLowerCase().includes(trimmedQuery.toLowerCase()) || path.toLowerCase().includes(trimmedQuery.toLowerCase());
+    });
+  }, [appSettings?.recentFolders, isSearching, pinnedFolders, rootPath, showRecentFolders, trimmedQuery]);
+
   const searchAutoExpandedFolders = useMemo(() => {
     if (!isSearching) {
       return new Set<string>();
@@ -357,23 +411,8 @@ export default function FolderTree({
     return new Set([...expandedFolders, ...searchAutoExpandedFolders]);
   }, [expandedFolders, searchAutoExpandedFolders]);
 
-  useEffect(() => {
-    if (isSearching) {
-      const hasPinnedResults = filteredPinnedTrees && filteredPinnedTrees.length > 0;
-      const hasBaseResults = !!filteredTree;
-
-      if (hasPinnedResults && activeSection !== 'pinned') {
-        handleActiveSectionChange('pinned');
-      } else if (!hasPinnedResults && hasBaseResults && activeSection !== 'current') {
-        handleActiveSectionChange('current');
-      }
-    }
-  }, [isSearching, filteredTree, filteredPinnedTrees, activeSection, handleActiveSectionChange]);
-
-  const isPinnedOpen = activeSection === 'pinned';
-  const isCurrentOpen = activeSection === 'current';
-
   const hasVisiblePinnedTrees = filteredPinnedTrees && filteredPinnedTrees.length > 0;
+  const hasVisibleRecentFolders = visibleRecentFolders.length > 0;
   const hasActiveImageDrag = draggedImagePaths.length > 0;
 
   return (
@@ -439,94 +478,87 @@ export default function FolderTree({
           </div>
 
           <div className="flex-1 overflow-y-auto" onContextMenu={handleEmptyAreaContextMenu}>
-            {hasVisiblePinnedTrees && (
-              <>
-                <div>
-                  <SectionHeader
-                    title="Pinned"
-                    isOpen={isPinnedOpen}
-                    onToggle={() => handleActiveSectionChange(isPinnedOpen ? null : 'pinned')}
-                  />
-                </div>
-                <AnimatePresence initial={false}>
-                  {isPinnedOpen && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2, ease: 'easeInOut' }}
-                      className="overflow-hidden"
-                    >
-                      <div className="pt-1 pb-2">
-                        {filteredPinnedTrees.map((pinnedTree) => (
-                          <TreeNode
-                            key={pinnedTree.path}
-                            expandedFolders={effectiveExpandedFolders}
-                            isExpanded={effectiveExpandedFolders.has(pinnedTree.path)}
-                            node={pinnedTree}
-                            onContextMenu={onContextMenu}
-                            onFolderSelect={onFolderSelect}
-                            onToggle={onToggleFolder}
-                            selectedPath={selectedPath}
-                            pinnedFolders={pinnedFolders}
-                            showImageCounts={showImageCounts && isHovering}
-                            isInstantTransition={isInstantTransition}
-                            dragTargetFolderPath={dragTargetFolderPath}
-                            hasActiveImageDrag={hasActiveImageDrag}
-                          />
-                        ))}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </>
-            )}
-
             {filteredTree && (
-              <>
-                <div>
-                  <SectionHeader
-                    title="Base Folder"
-                    isOpen={isCurrentOpen}
-                    onToggle={() => handleActiveSectionChange(isCurrentOpen ? null : 'current')}
-                  />
-                </div>
-                <AnimatePresence initial={false}>
-                  {isCurrentOpen && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2, ease: 'easeInOut' }}
-                      className="overflow-hidden"
-                    >
-                      <div className="pt-1">
-                        <TreeNode
-                          expandedFolders={effectiveExpandedFolders}
-                          isExpanded={effectiveExpandedFolders.has(filteredTree.path)}
-                          node={filteredTree}
-                          onContextMenu={onContextMenu}
-                          onFolderSelect={onFolderSelect}
-                          onToggle={onToggleFolder}
-                          selectedPath={selectedPath}
-                          pinnedFolders={pinnedFolders}
-                          showImageCounts={showImageCounts && isHovering}
-                          isInstantTransition={isInstantTransition}
-                          dragTargetFolderPath={dragTargetFolderPath}
-                          hasActiveImageDrag={hasActiveImageDrag}
-                        />
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </>
+              <div className="pb-2">
+                <Text
+                  as="div"
+                  variant={TextVariants.small}
+                  weight={TextWeights.bold}
+                  className="w-full px-2 py-1.5 uppercase tracking-wider select-none text-text-secondary"
+                >
+                  Current Folder
+                </Text>
+                <TreeNode
+                  expandedFolders={effectiveExpandedFolders}
+                  isExpanded={effectiveExpandedFolders.has(filteredTree.path)}
+                  node={filteredTree}
+                  onContextMenu={onContextMenu}
+                  onFolderSelect={onFolderSelect}
+                  onToggle={onToggleFolder}
+                  selectedPath={selectedPath}
+                  pinnedFolders={pinnedFolders}
+                  selectAsSessionRoot={false}
+                  showImageCounts={showImageCounts && isHovering}
+                  isInstantTransition={isInstantTransition}
+                  dragTargetFolderPath={dragTargetFolderPath}
+                  hasActiveImageDrag={hasActiveImageDrag}
+                />
+              </div>
             )}
 
-            {!filteredTree && !hasVisiblePinnedTrees && isSearching && (
+            {(hasVisiblePinnedTrees || hasVisibleRecentFolders) && filteredTree && (
+              <div className="h-px bg-border-color my-1 mx-2" />
+            )}
+
+            <div className="pb-2 space-y-0.5">
+              {(hasVisiblePinnedTrees || hasVisibleRecentFolders) && (
+                <Text
+                  as="div"
+                  variant={TextVariants.small}
+                  weight={TextWeights.bold}
+                  className="w-full px-2 py-1.5 uppercase tracking-wider select-none text-text-secondary"
+                >
+                  Quick Access
+                </Text>
+              )}
+              {hasVisiblePinnedTrees &&
+                filteredPinnedTrees.map((pinnedTree) => (
+                  <TreeNode
+                    key={pinnedTree.path}
+                    expandedFolders={effectiveExpandedFolders}
+                    isExpanded={effectiveExpandedFolders.has(pinnedTree.path)}
+                    node={pinnedTree}
+                    onContextMenu={onContextMenu}
+                    onFolderSelect={onFolderSelect}
+                    onToggle={onToggleFolder}
+                    selectedPath={selectedPath}
+                    pinnedFolders={pinnedFolders}
+                    selectAsSessionRoot={true}
+                    showImageCounts={showImageCounts && isHovering}
+                    isInstantTransition={isInstantTransition}
+                    dragTargetFolderPath={dragTargetFolderPath}
+                    hasActiveImageDrag={hasActiveImageDrag}
+                  />
+                ))}
+
+              {hasVisibleRecentFolders &&
+                visibleRecentFolders.map((recentFolder) => (
+                  <RecentFolderRow
+                    key={recentFolder}
+                    path={recentFolder}
+                    isSelected={isSameFolderPath(recentFolder, selectedPath)}
+                    onContextMenu={onContextMenu}
+                    onFolderSelect={onFolderSelect}
+                    onRemove={onRecentFolderRemove}
+                  />
+                ))}
+            </div>
+
+            {!filteredTree && !hasVisiblePinnedTrees && !hasVisibleRecentFolders && isSearching && (
               <Text className="p-2 text-center">No folders found.</Text>
             )}
 
-            {!tree && pinnedFolderTrees.length === 0 && !isSearching && (
+            {!tree && pinnedFolderTrees.length === 0 && !hasVisibleRecentFolders && !isSearching && (
               <div className="pt-1">
                 {isLoading ? (
                   <Text className="animate-pulse p-2">Loading folder structure...</Text>

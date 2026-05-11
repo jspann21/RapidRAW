@@ -9,6 +9,7 @@ import {
   FolderInput,
   Home,
   Loader2,
+  Pin,
   RefreshCw,
   Settings,
   Search,
@@ -35,6 +36,7 @@ import { ImportState, Status } from '../ui/ExportImportProperties';
 import Text from '../ui/Text';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useLibraryStore } from '../../store/useLibraryStore';
+import { getFolderDisplayName } from '../../utils/folderPaths';
 
 import LibraryGrid from './library/LibraryGrid';
 import { SearchInput, ViewOptionsDropdown } from './library/LibraryHeader';
@@ -64,6 +66,7 @@ interface MainLibraryProps {
   onImportClick(): void;
   onLibraryRefresh(): void;
   onOpenFolder(): void;
+  onOpenSavedFolder(path: string): void;
   onSettingsChange(settings: AppSettings): Promise<void>;
   onThumbnailAspectRatioChange(aspectRatio: ThumbnailAspectRatio): void;
   onThumbnailSizeChange(size: ThumbnailSize): void;
@@ -193,6 +196,7 @@ export default function MainLibrary(props: MainLibraryProps) {
       return null;
     }
     const hasLastPath = !!props.appSettings.lastRootPath;
+    const savedFolders = props.appSettings.pinnedFolders || [];
     const currentThemeId = props.theme || DEFAULT_THEME_ID;
     const selectedTheme: ThemeProps | undefined =
       THEMES.find((t: ThemeProps) => t.id === currentThemeId) ||
@@ -290,6 +294,32 @@ export default function MainLibrary(props: MainLibraryProps) {
                           <Settings size={20} />
                         </Button>
                       </div>
+                      {savedFolders.length > 0 && (
+                        <div className="pt-2">
+                          <Text
+                            variant={TextVariants.small}
+                            color={TextColors.secondary}
+                            weight={TextWeights.bold}
+                            className="block uppercase tracking-wider mb-2"
+                          >
+                            Saved Folders
+                          </Text>
+                          <div className="space-y-1">
+                            {savedFolders.map((folderPath: string) => (
+                              <button
+                                key={folderPath}
+                                type="button"
+                                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left text-sm text-text-primary hover:bg-surface transition-colors"
+                                onClick={() => props.onOpenSavedFolder(folderPath)}
+                                title={folderPath}
+                              >
+                                <Pin size={14} className="shrink-0 text-text-secondary" />
+                                <span className="truncate">{getFolderDisplayName(folderPath)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 

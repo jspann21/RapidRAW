@@ -1634,6 +1634,18 @@ export default function SettingsPanel({
                     </SettingItem>
 
                     <SettingItem
+                      label="Recently Opened Folders"
+                      description="Keep the last 10 opened folders in the folder sidebar."
+                    >
+                      <Switch
+                        checked={appSettings?.showRecentFolders ?? true}
+                        id="show-recent-folders-toggle"
+                        label="Show Recent Folders"
+                        onChange={(checked) => onSettingsChange({ ...appSettings, showRecentFolders: checked })}
+                      />
+                    </SettingItem>
+
+                    <SettingItem
                       label="Focus Mode"
                       description="Helps you focus by automatically closing other panels when you open a new one."
                     >

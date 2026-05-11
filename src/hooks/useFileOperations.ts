@@ -11,6 +11,7 @@ import { Invokes } from '../components/ui/AppProperties';
 import { Status } from '../components/ui/ExportImportProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { debouncedSave } from './useEditorActions';
+import { isPathWithinFolder, replaceFolderPathPrefix } from '../utils/folderPaths';
 
 export function useFileOperations(
   refreshImageList: () => Promise<void>,
@@ -187,17 +188,34 @@ export function useFileOperations(
             newAppSettings.lastRootPath = newPath;
             settingsChanged = true;
           }
-          if (currentFolderPath?.startsWith(oldPath)) {
-            const newCurrentPath = currentFolderPath.replace(oldPath, newPath);
+          if (isPathWithinFolder(currentFolderPath, oldPath)) {
+            const newCurrentPath = replaceFolderPathPrefix(currentFolderPath as string, oldPath, newPath);
             setLibrary({ currentFolderPath: newCurrentPath });
           }
 
           const currentPins = appSettings?.pinnedFolders || [];
-          if (currentPins.includes(oldPath)) {
+          if (currentPins.some((p: string) => isPathWithinFolder(p, oldPath))) {
             const newPins = currentPins
-              .map((p: string) => (p === oldPath ? newPath : p))
+              .map((p: string) => replaceFolderPathPrefix(p, oldPath, newPath))
               .sort((a: string, b: string) => a.localeCompare(b));
             newAppSettings.pinnedFolders = newPins;
+            settingsChanged = true;
+          }
+
+          const currentRecents = appSettings?.recentFolders || [];
+          if (currentRecents.some((p: string) => isPathWithinFolder(p, oldPath))) {
+            newAppSettings.recentFolders = currentRecents.map((p: string) => replaceFolderPathPrefix(p, oldPath, newPath));
+            settingsChanged = true;
+          }
+
+          if (appSettings?.lastFolderState?.currentFolderPath && isPathWithinFolder(appSettings.lastFolderState.currentFolderPath, oldPath)) {
+            newAppSettings.lastFolderState = {
+              ...appSettings.lastFolderState,
+              currentFolderPath: replaceFolderPathPrefix(appSettings.lastFolderState.currentFolderPath, oldPath, newPath),
+              expandedFolders: (appSettings.lastFolderState.expandedFolders || []).map((p: string) =>
+                replaceFolderPathPrefix(p, oldPath, newPath),
+              ),
+            };
             settingsChanged = true;
           }
 

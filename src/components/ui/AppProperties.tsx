@@ -196,6 +196,8 @@ export interface AppSettings {
   filterCriteria?: FilterCriteria;
   lastFolderState?: any;
   pinnedFolders?: any;
+  recentFolders?: string[];
+  showRecentFolders?: boolean;
   lastRootPath: string | null;
   libraryViewMode?: LibraryViewMode;
   sortCriteria?: SortCriteria;

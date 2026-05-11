@@ -69,6 +69,7 @@ export interface UseAppContextMenusProps {
   refreshImageList: () => Promise<void>;
   executeDelete: (paths: string[], options: any) => Promise<void>;
   handleTogglePinFolder: (path: string) => Promise<void>;
+  handleRemoveRecentFolder: (path: string) => Promise<void>;
 }
 
 export function useAppContextMenus(props: UseAppContextMenusProps) {
@@ -799,7 +800,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
   );
 
   const handleFolderTreeContextMenu = useCallback(
-    (event: any, path: string, isCurrentlyPinned?: boolean) => {
+    (event: any, path: string, isCurrentlyPinned?: boolean, isRecent?: boolean) => {
       event.preventDefault();
       event.stopPropagation();
 
@@ -816,8 +817,30 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       const movePastedLabel = numCopied === 1 ? 'Move image here' : `Move ${numCopied} images here`;
 
       const pinOption = isCurrentlyPinned
-        ? { icon: PinOff, label: 'Unpin Folder', onClick: () => props.handleTogglePinFolder(targetPath) }
-        : { icon: Pin, label: 'Pin Folder', onClick: () => props.handleTogglePinFolder(targetPath) };
+        ? { icon: PinOff, label: 'Remove Saved Folder', onClick: () => props.handleTogglePinFolder(targetPath) }
+        : { icon: Pin, label: 'Save Folder', onClick: () => props.handleTogglePinFolder(targetPath) };
+
+      if (isRecent) {
+        const recentOptions = [
+          pinOption,
+          {
+            icon: X,
+            label: 'Remove from Recent',
+            onClick: () => props.handleRemoveRecentFolder(targetPath),
+          },
+          { type: OPTION_SEPARATOR },
+          {
+            icon: Folder,
+            label: 'Show in File Explorer',
+            onClick: () =>
+              invoke(Invokes.ShowInFinder, { path: targetPath }).catch((err) =>
+                toast.error(`Could not show folder: ${err}`),
+              ),
+          },
+        ];
+        showContextMenu(event.clientX, event.clientY, recentOptions);
+        return;
+      }
 
       const options = [
         pinOption,
