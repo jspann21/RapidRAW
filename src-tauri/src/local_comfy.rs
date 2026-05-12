@@ -1,6 +1,6 @@
 use crate::app_settings::LocalAiGenerationSettings;
 use std::fs;
-use std::io::{Cursor, Write};
+use std::io::{Cursor, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -420,8 +420,15 @@ fn verify_sha256(path: &Path, expected: &str) -> Result<bool> {
     }
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher)?;
-    Ok(format!("{:x}", hasher.finalize()) == expected)
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+    Ok(hex::encode(hasher.finalize()) == expected)
 }
 
 pub async fn start_runtime(

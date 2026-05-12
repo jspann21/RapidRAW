@@ -38,8 +38,6 @@ on:
 
 jobs:
   build:
-    permissions:
-      contents: write
     runs-on: ${{ inputs.platform }}
     steps:
       - name: Checkout repository
@@ -105,7 +103,7 @@ jobs:
         run: npm install
 
       - name: Setup Android signing
-        if: inputs.mobile == 'android'
+        if: inputs.mobile == 'android' && github.event_name != 'pull_request'
         run: |
           cd src-tauri/gen/android
           echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" > keystore.properties

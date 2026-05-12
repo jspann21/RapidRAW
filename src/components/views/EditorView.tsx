@@ -140,8 +140,6 @@ export default function EditorView({
     })),
   );
 
-  const { displaySize, originalSize, baseRenderSize, zoom, adjustments } = useEditorStore.getState();
-
   const editorNode = (
     <Editor
       onBackToLibrary={handleBackToLibrary}
@@ -164,9 +162,6 @@ export default function EditorView({
       isRatingDisabled={!selectedImage}
       isResizing={isResizing}
       multiSelectedPaths={multiSelectedPaths}
-      displaySize={displaySize}
-      originalSize={originalSize}
-      baseRenderSize={baseRenderSize}
       onClearSelection={handleClearSelection}
       onContextMenu={handleThumbnailContextMenu}
       onCopy={handleCopyAdjustments}
@@ -184,7 +179,6 @@ export default function EditorView({
       showFilmstrip={!isCompactPortrait}
       showZoomControls={!isAndroid}
       thumbnailAspectRatio={thumbnailAspectRatio}
-      zoom={zoom}
       totalImages={sortedImageList.length}
     />
   );
@@ -233,7 +227,6 @@ export default function EditorView({
           )}
           {renderedRightPanel === Panel.Export && (
             <ExportPanel
-              adjustments={adjustments}
               exportState={exportState}
               multiSelectedPaths={multiSelectedPaths}
               selectedImage={selectedImage}

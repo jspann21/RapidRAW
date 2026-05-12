@@ -57,14 +57,17 @@ impl WgpuDisplay {
     pub fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         if let Some(bind_group) = &self.current_bind_group {
             let output = match self.surface.get_current_texture() {
-                Ok(tex) => tex,
-                Err(wgpu::SurfaceError::Outdated) | Err(wgpu::SurfaceError::Lost) => {
+                wgpu::CurrentSurfaceTexture::Success(tex)
+                | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,
+                wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
                     self.surface.configure(device, &self.config);
-                    self.surface
-                        .get_current_texture()
-                        .unwrap_or_else(|_| panic!("Failed to acquire surface texture"))
+                    match self.surface.get_current_texture() {
+                        wgpu::CurrentSurfaceTexture::Success(tex)
+                        | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,
+                        _ => panic!("Failed to acquire surface texture"),
+                    }
                 }
-                Err(_) => return,
+                _ => return,
             };
             let view = output
                 .texture
@@ -141,7 +144,7 @@ pub fn get_or_init_gpu_context(
     }
 
     #[allow(unused_mut)]
-    let mut instance_desc = wgpu::InstanceDescriptor::from_env_or_default();
+    let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
 
     #[cfg(target_os = "windows")]
     if std::env::var("WGPU_BACKEND").is_err() {
@@ -156,7 +159,7 @@ pub fn get_or_init_gpu_context(
         let _ = std::fs::write(p, "initializing_gpu");
     }
 
-    let instance = wgpu::Instance::new(&instance_desc);
+    let instance = wgpu::Instance::new(instance_desc);
 
     #[cfg(not(any(target_os = "android", target_os = "linux")))]
     let surface_opt = {
@@ -318,7 +321,7 @@ pub fn get_or_init_gpu_context(
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Display Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
+            bind_group_layouts: &[Some(&bind_group_layout)],
             immediate_size: 0,
         });
 
@@ -592,7 +595,7 @@ impl GpuProcessor {
 
         let blur_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Blur Pipeline Layout"),
-            bind_group_layouts: &[&blur_bgl],
+            bind_group_layouts: &[Some(&blur_bgl)],
             immediate_size: 0,
         });
 
@@ -697,13 +700,13 @@ impl GpuProcessor {
         let flare_threshold_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Flare Threshold Layout"),
-                bind_group_layouts: &[&flare_bgl_0],
+                bind_group_layouts: &[Some(&flare_bgl_0)],
                 immediate_size: 0,
             });
 
         let flare_ghosts_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Flare Ghosts Layout"),
-            bind_group_layouts: &[&flare_bgl_0, &flare_bgl_1],
+            bind_group_layouts: &[Some(&flare_bgl_0), Some(&flare_bgl_1)],
             immediate_size: 0,
         });
 
@@ -896,7 +899,7 @@ impl GpuProcessor {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Pipeline Layout"),
-            bind_group_layouts: &[&main_bgl],
+            bind_group_layouts: &[Some(&main_bgl)],
             immediate_size: 0,
         });
 

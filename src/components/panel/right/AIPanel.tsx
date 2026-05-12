@@ -265,6 +265,14 @@ export default function AIPanel() {
       setEditor((state) => ({ brushSettings: typeof updater === 'function' ? updater(state.brushSettings) : updater })),
     [setEditor],
   );
+  const selectBrushToolForNewMask = useCallback(() => {
+    setEditor((state) => ({
+      brushSettings: {
+        ...(state.brushSettings ?? { size: 50, feather: 50, tool: ToolType.Brush }),
+        tool: ToolType.Brush,
+      },
+    }));
+  }, [setEditor]);
 
   const onSelectPatchContainer = useCallback(
     (id: string | null) => setEditor({ activeAiPatchContainerId: id }),
@@ -451,6 +459,7 @@ export default function AIPanel() {
     onSelectPatchContainer(newContainer.id);
     onSelectSubMask(subMask.id);
     setExpandedContainers((prev) => new Set(prev).add(newContainer.id));
+    if (type === Mask.Brush) selectBrushToolForNewMask();
 
     if (type === Mask.AiForeground) handleGenerateAiForegroundMask(subMask.id);
   };
@@ -477,6 +486,7 @@ export default function AIPanel() {
     onSelectPatchContainer(containerId);
     onSelectSubMask(subMask.id);
     setExpandedContainers((prev) => new Set(prev).add(containerId));
+    if (type === Mask.Brush) selectBrushToolForNewMask();
     if (type === Mask.AiForeground) handleGenerateAiForegroundMask(subMask.id);
   };
 

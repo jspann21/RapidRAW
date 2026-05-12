@@ -974,6 +974,51 @@ const ImageCanvas = memo(
     const isBrushActive =
       (isMasking || isAiEditing) && (activeSubMask?.type === Mask.Brush || activeSubMask?.type === Mask.Flow);
     const activeLineFlow = activeSubMask?.type === Mask.Flow ? (activeSubMask?.parameters?.flow ?? 10) : undefined;
+    const brushCursorPreview = useMemo(() => {
+      const radius = brushStageSize / 2;
+      const feather = Math.max(0, Math.min(1, (brushSettings?.feather ?? 0) / 100));
+      const subMaskOpacity = Math.max(0, Math.min(1, (activeSubMask?.opacity ?? 100) / 100));
+      const containerOpacity =
+        activeContainer && 'opacity' in activeContainer && typeof activeContainer.opacity === 'number'
+          ? Math.max(0, Math.min(1, activeContainer.opacity / 100))
+          : 1;
+      const flowOpacity =
+        activeSubMask?.type === Mask.Flow ? Math.max(0, Math.min(1, (activeSubMask.parameters?.flow ?? 10) / 100)) : 1;
+      const alpha = Math.max(0, Math.min(0.5, 0.5 * subMaskOpacity * containerOpacity * flowOpacity));
+      const blue = (a: number) => `rgba(14, 165, 233, ${a.toFixed(3)})`;
+
+      if (feather <= 0.001) {
+        return {
+          fill: blue(alpha),
+          radius,
+        };
+      }
+
+      const innerStop = 1 - feather;
+      const colorStops: Array<number | string> = [0, blue(alpha)];
+
+      if (innerStop > 0.001) {
+        colorStops.push(innerStop, blue(alpha));
+      }
+
+      for (const t of [0.25, 0.5, 0.75, 1]) {
+        const smoothstep = t * t * (3 - 2 * t);
+        const intensity = 1 - smoothstep;
+        colorStops.push(Math.min(1, innerStop + feather * t), blue(alpha * intensity));
+      }
+
+      return {
+        colorStops,
+        radius,
+      };
+    }, [
+      activeContainer,
+      activeSubMask?.opacity,
+      activeSubMask?.parameters?.flow,
+      activeSubMask?.type,
+      brushSettings?.feather,
+      brushStageSize,
+    ]);
     const isAiSubjectActive =
       (isMasking || isAiEditing) &&
       (activeSubMask?.type === Mask.AiSubject || activeSubMask?.type === Mask.QuickEraser);
@@ -2128,19 +2173,18 @@ const ImageCanvas = memo(
                 )}
                 {isBrushActive && cursorPreview.visible && (
                   <Circle
+                    {...(brushCursorPreview.colorStops
+                      ? {
+                          fillRadialGradientColorStops: brushCursorPreview.colorStops,
+                          fillRadialGradientEndPoint: { x: 0, y: 0 },
+                          fillRadialGradientEndRadius: brushCursorPreview.radius,
+                          fillRadialGradientStartPoint: { x: 0, y: 0 },
+                          fillRadialGradientStartRadius: 0,
+                        }
+                      : { fill: brushCursorPreview.fill })}
                     listening={false}
                     perfectDrawEnabled={false}
-                    stroke={
-                      (window as any).altKeyDown
-                        ? baseTool === ToolType.Brush
-                          ? '#f43f5e'
-                          : '#0ea5e9'
-                        : baseTool === ToolType.Eraser
-                          ? '#f43f5e'
-                          : '#0ea5e9'
-                    }
-                    radius={brushStageSize / 2}
-                    strokeWidth={1}
+                    radius={brushCursorPreview.radius}
                     x={cursorPreview.x}
                     y={cursorPreview.y}
                   />

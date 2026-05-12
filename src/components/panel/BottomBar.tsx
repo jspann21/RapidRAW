@@ -2,9 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import { Star, Copy, ClipboardPaste, ChevronUp, ChevronDown, Check, FileInput, Settings } from 'lucide-react';
 import clsx from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useShallow } from 'zustand/react/shallow';
+
 import Filmstrip from './Filmstrip';
 import { GLOBAL_KEYS, ImageFile, SelectedImage, ThumbnailAspectRatio } from '../ui/AppProperties';
 import Text from '../ui/Text';
+import { useEditorStore } from '../../store/useEditorStore';
 
 interface BottomBarProps {
   filmstripHeight?: number;
@@ -39,10 +42,6 @@ interface BottomBarProps {
   showFilmstrip?: boolean;
   showZoomControls?: boolean;
   thumbnailAspectRatio: ThumbnailAspectRatio;
-  zoom?: number;
-  displaySize?: { width: number; height: number };
-  originalSize?: { width: number; height: number };
-  baseRenderSize?: { width: number; height: number };
   totalImages?: number;
 }
 
@@ -116,10 +115,15 @@ export default function BottomBar({
   showFilmstrip = true,
   showZoomControls = true,
   thumbnailAspectRatio,
-  displaySize,
-  originalSize,
   totalImages,
 }: BottomBarProps) {
+  const { displaySize, originalSize } = useEditorStore(
+    useShallow((state) => ({
+      displaySize: state.displaySize,
+      originalSize: state.originalSize,
+    })),
+  );
+
   const [isEditingPercent, setIsEditingPercent] = useState(false);
   const [percentInputValue, setPercentInputValue] = useState('');
   const isDraggingSlider = useRef(false);
@@ -130,7 +134,7 @@ export default function BottomBar({
   const isZoomReady = !isLoading && originalSize && originalSize.width > 0 && displaySize && displaySize.width > 0;
 
   const currentOriginalPercent = isZoomReady
-    ? (displaySize!.width * (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)) / originalSize!.width
+    ? (displaySize.width * (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)) / originalSize.width
     : 1.0;
 
   const [latchedSliderValue, setLatchedSliderValue] = useState(1.0);

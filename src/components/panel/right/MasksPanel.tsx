@@ -602,6 +602,14 @@ export default function MasksPanel() {
     },
     [setEditor],
   );
+  const selectBrushToolForNewMask = useCallback(() => {
+    setEditor((state) => ({
+      brushSettings: {
+        ...(state.brushSettings ?? { size: 50, feather: 50, tool: ToolType.Brush }),
+        tool: ToolType.Brush,
+      },
+    }));
+  }, [setEditor]);
 
   const setCopiedMask = useCallback((mask: MaskContainer) => setEditor({ copiedMask: mask }), [setEditor]);
   const setIsMaskControlHovered = useCallback(
@@ -785,6 +793,7 @@ export default function MasksPanel() {
     onSelectContainer(newContainer.id);
     onSelectMask(subMask.id);
     setExpandedContainers((prev) => new Set(prev).add(newContainer.id));
+    if (type === Mask.Brush || type === Mask.Flow) selectBrushToolForNewMask();
     if (type === Mask.AiForeground) handleGenerateAiForegroundMask(subMask.id);
     else if (type === Mask.AiSky) handleGenerateAiSkyMask(subMask.id);
     else if (type === Mask.AiDepth) handleGenerateAiDepthMask(subMask.id, subMask.parameters);
@@ -815,6 +824,7 @@ export default function MasksPanel() {
     onSelectContainer(containerId);
     onSelectMask(subMask.id);
     setExpandedContainers((prev) => new Set(prev).add(containerId));
+    if (type === Mask.Brush || type === Mask.Flow) selectBrushToolForNewMask();
     if (type === Mask.AiForeground) handleGenerateAiForegroundMask(subMask.id);
     else if (type === Mask.AiSky) handleGenerateAiSkyMask(subMask.id);
     else if (type === Mask.AiDepth) handleGenerateAiDepthMask(subMask.id, subMask.parameters);

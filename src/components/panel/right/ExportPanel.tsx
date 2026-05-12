@@ -27,9 +27,10 @@ import { useExportSettings } from '../../../hooks/useExportSettings';
 import { useOsPlatform } from '../../../hooks/useOsPlatform';
 import Text from '../../ui/Text';
 import { TextColors, TextVariants, TextWeights } from '../../../types/typography';
+import { useShallow } from 'zustand/react/shallow';
+import { useEditorStore } from '../../../store/useEditorStore';
 
 interface ExportPanelProps {
-  adjustments: Adjustments;
   exportState: ExportState;
   multiSelectedPaths: Array<string>;
   selectedImage: SelectedImage;
@@ -170,7 +171,6 @@ const resizeModeOptions = [
 ];
 
 export default function ExportPanel({
-  adjustments,
   exportState,
   multiSelectedPaths,
   selectedImage,
@@ -219,6 +219,12 @@ export default function ExportPanel({
     handleApplyPreset,
     currentSettingsObject,
   } = useExportSettings();
+
+  const { adjustments } = useEditorStore(
+    useShallow((state) => ({
+      adjustments: state.adjustments,
+    })),
+  );
 
   const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
   const initDone = useRef(false);

@@ -122,7 +122,7 @@ export function useImageProcessing(
       const currentPath = selectedImage?.path;
       if (!currentPath) return;
 
-      const payload = JSON.parse(JSON.stringify(currentAdjustments));
+      const payload = structuredClone(currentAdjustments);
       const { patchesSentToBackend } = useEditorStore.getState();
 
       const processSubMasks = (subMasks: any[]) => {
@@ -419,10 +419,9 @@ export function useImageProcessing(
       }
     } else {
       dragIdleTimer.current = setTimeout(() => {
-        const applyRes = Math.max(targetRes, currentResRef.current);
-        currentResRef.current = applyRes;
+        currentResRef.current = targetRes;
 
-        applyAdjustments(adjustments, false, applyRes);
+        applyAdjustments(adjustments, false, targetRes);
         debouncedSave(selectedImage.path, adjustments);
 
         const { suppressNextMultiSelectionSync } = useEditorStore.getState();

@@ -125,7 +125,7 @@ pub fn extract_color_tags(image: &DynamicImage) -> Vec<String> {
         .map(|(name, &count)| (name.clone(), count))
         .collect();
 
-    colorful_tags.sort_by(|a, b| b.1.cmp(&a.1));
+    colorful_tags.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     if !colorful_tags.is_empty() {
         colorful_tags
