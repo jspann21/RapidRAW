@@ -5,6 +5,13 @@ import { ChannelConfig } from '../components/adjustments/Curves';
 import { ImageDimensions } from '../hooks/useImageRenderSize';
 import { ToolType } from '../components/panel/right/Masks';
 import { OverlayMode } from '../components/panel/right/CropPanel';
+import {
+  EditHistoryEntry,
+  appendHistoryEntry,
+  cloneAdjustments,
+  createHistoryEntry,
+  normalizeEditHistory,
+} from '../utils/editHistory';
 
 export interface InteractivePatch {
   url: string;
@@ -30,7 +37,7 @@ interface EditorState {
   adjustments: Adjustments;
 
   // History State
-  history: Adjustments[];
+  history: EditHistoryEntry[];
   historyIndex: number;
   pasteAdjustmentsUndoStack: PasteAdjustmentsUndoEntry[];
   suppressNextMultiSelectionSync: boolean;
@@ -85,17 +92,17 @@ interface EditorState {
 
   // Actions
   setEditor: (updater: Partial<EditorState> | ((state: EditorState) => Partial<EditorState>)) => void;
-  pushHistory: (newAdjustments: Adjustments) => void;
+  pushHistory: (newAdjustments: Adjustments, label?: string) => void;
   undo: () => void;
   redo: () => void;
-  resetHistory: (initialState: Adjustments) => void;
+  resetHistory: (initialState: Adjustments, savedHistory?: unknown) => void;
   goToHistoryIndex: (index: number) => void;
 }
 
 export const useEditorStore = create<EditorState>((set) => ({
   selectedImage: null,
   adjustments: INITIAL_ADJUSTMENTS,
-  history: [INITIAL_ADJUSTMENTS],
+  history: [createHistoryEntry('Original', INITIAL_ADJUSTMENTS)],
   historyIndex: 0,
   pasteAdjustmentsUndoStack: [],
   suppressNextMultiSelectionSync: false,
@@ -144,19 +151,17 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   setEditor: (updater) => set((state) => (typeof updater === 'function' ? updater(state) : updater)),
 
-  pushHistory: (newAdj) =>
+  pushHistory: (newAdj, label = 'Edit') =>
     set((state) => {
-      const newHistory = state.history.slice(0, state.historyIndex + 1);
-      newHistory.push(newAdj);
-      if (newHistory.length > 50) newHistory.shift();
-      return { history: newHistory, historyIndex: newHistory.length - 1 };
+      const nextHistory = appendHistoryEntry(state.history, state.historyIndex, newAdj, label);
+      return { history: nextHistory.entries, historyIndex: nextHistory.currentIndex };
     }),
 
   undo: () =>
     set((state) => {
       if (state.historyIndex > 0) {
         const newIndex = state.historyIndex - 1;
-        return { historyIndex: newIndex, adjustments: state.history[newIndex] };
+        return { historyIndex: newIndex, adjustments: cloneAdjustments(state.history[newIndex].adjustments) };
       }
       return state;
     }),
@@ -165,22 +170,26 @@ export const useEditorStore = create<EditorState>((set) => ({
     set((state) => {
       if (state.historyIndex < state.history.length - 1) {
         const newIndex = state.historyIndex + 1;
-        return { historyIndex: newIndex, adjustments: state.history[newIndex] };
+        return { historyIndex: newIndex, adjustments: cloneAdjustments(state.history[newIndex].adjustments) };
       }
       return state;
     }),
 
-  resetHistory: (initialState) =>
-    set({
-      history: [initialState],
-      historyIndex: 0,
-      adjustments: initialState,
+  resetHistory: (initialState, savedHistory) =>
+    set(() => {
+      const normalized = normalizeEditHistory(savedHistory, initialState);
+      const activeEntry = normalized.entries[normalized.currentIndex];
+      return {
+        history: normalized.entries,
+        historyIndex: normalized.currentIndex,
+        adjustments: activeEntry ? cloneAdjustments(activeEntry.adjustments) : initialState,
+      };
     }),
 
   goToHistoryIndex: (index) =>
     set((state) => {
       if (index >= 0 && index < state.history.length) {
-        return { historyIndex: index, adjustments: state.history[index] };
+        return { historyIndex: index, adjustments: cloneAdjustments(state.history[index].adjustments) };
       }
       return state;
     }),

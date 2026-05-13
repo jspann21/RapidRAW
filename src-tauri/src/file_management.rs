@@ -124,6 +124,61 @@ impl fmt::Display for ReadFileError {
     }
 }
 
+fn append_edit_history(metadata: &mut ImageMetadata, label: &str) {
+    let snapshot = metadata.adjustments.clone();
+    if snapshot.is_null() {
+        return;
+    }
+
+    let mut history = metadata
+        .edit_history
+        .take()
+        .filter(|value| value.is_object())
+        .unwrap_or_else(|| serde_json::json!({ "version": 1, "currentIndex": 0, "entries": [] }));
+
+    let Some(history_obj) = history.as_object_mut() else {
+        return;
+    };
+
+    let requested_index = history_obj
+        .get("currentIndex")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize);
+
+    let next_index = {
+        let entries_value = history_obj
+            .entry("entries".to_string())
+            .or_insert_with(|| serde_json::json!([]));
+        let Some(entries) = entries_value.as_array_mut() else {
+            metadata.edit_history = Some(history);
+            return;
+        };
+
+        let current_index = requested_index.unwrap_or_else(|| entries.len().saturating_sub(1));
+        let truncate_len = current_index.saturating_add(1).min(entries.len());
+        entries.truncate(truncate_len);
+
+        entries.push(serde_json::json!({
+            "id": Uuid::new_v4().to_string(),
+            "label": label,
+            "timestamp": Utc::now().to_rfc3339(),
+            "adjustments": snapshot,
+        }));
+
+        const HISTORY_LIMIT: usize = 100;
+        if entries.len() > HISTORY_LIMIT {
+            let overflow = entries.len() - HISTORY_LIMIT;
+            entries.drain(0..overflow);
+        }
+
+        entries.len().saturating_sub(1)
+    };
+
+    history_obj.insert("version".to_string(), serde_json::json!(1));
+    history_obj.insert("currentIndex".to_string(), serde_json::json!(next_index));
+    metadata.edit_history = Some(history);
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ImageFile {
     path: String,
@@ -1584,6 +1639,7 @@ pub fn move_files(source_paths: Vec<String>, destination_folder: String) -> Resu
 pub fn save_metadata_and_update_thumbnail(
     path: String,
     adjustments: Value,
+    edit_history: Option<Value>,
     app_handle: AppHandle,
     state: tauri::State<AppState>,
 ) -> Result<(), String> {
@@ -1599,6 +1655,9 @@ pub fn save_metadata_and_update_thumbnail(
     };
 
     metadata.adjustments = adjustments;
+    if let Some(history) = edit_history {
+        metadata.edit_history = Some(history);
+    }
 
     let json_string = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
     std::fs::write(&sidecar_path, json_string).map_err(|e| e.to_string())?;
@@ -1707,6 +1766,7 @@ pub async fn apply_adjustments_to_paths(
             }
 
             existing_metadata.adjustments = new_adjustments;
+            append_edit_history(&mut existing_metadata, "Synced Adjustments");
 
             if let Ok(json_string) = serde_json::to_string_pretty(&existing_metadata) {
                 let _ = std::fs::write(&sidecar_path, json_string);
@@ -1785,6 +1845,7 @@ pub async fn reset_adjustments_for_paths(
             };
 
             existing_metadata.adjustments = serde_json::json!({});
+            append_edit_history(&mut existing_metadata, "Reset Adjustments");
 
             if let Ok(json_string) = serde_json::to_string_pretty(&existing_metadata) {
                 let _ = std::fs::write(&sidecar_path, json_string);
@@ -1923,6 +1984,7 @@ pub async fn apply_auto_adjustments_to_paths(
                         }
                     }
                 }
+                append_edit_history(&mut existing_metadata, "Auto Adjustment");
 
                 if let Ok(json_string) = serde_json::to_string_pretty(&existing_metadata) {
                     let _ = std::fs::write(&sidecar_path, json_string);

@@ -41,8 +41,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<any>) {
             initialAdjusts = { ...INITIAL_ADJUSTMENTS };
           }
 
-          setEditor({ adjustments: initialAdjusts });
-          resetHistory(initialAdjusts);
+          resetHistory(initialAdjusts, metadata.editHistory);
         } catch (err) {
           console.error('Failed to load metadata early:', err);
         }
@@ -145,6 +144,8 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<any>) {
         selectedImage,
         originalSize,
         previewSize,
+        history: useEditorStore.getState().history,
+        historyIndex: useEditorStore.getState().historyIndex,
       };
     } else {
       cachedEditStateRef.current = null;

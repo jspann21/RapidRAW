@@ -105,16 +105,19 @@ export default function Controls() {
   };
 
   const handleResetAdjustments = () => {
-    setAdjustments((prev: Adjustments) => ({
-      ...prev,
-      ...Object.keys(ADJUSTMENT_SECTIONS)
-        .flatMap((s) => ADJUSTMENT_SECTIONS[s])
-        .reduce((acc: any, key: string) => {
-          acc[key] = INITIAL_ADJUSTMENTS[key as keyof Adjustments];
-          return acc;
-        }, {}),
-      sectionVisibility: { ...INITIAL_ADJUSTMENTS.sectionVisibility },
-    }));
+    setAdjustments(
+      (prev: Adjustments) => ({
+        ...prev,
+        ...Object.keys(ADJUSTMENT_SECTIONS)
+          .flatMap((s) => ADJUSTMENT_SECTIONS[s])
+          .reduce((acc: any, key: string) => {
+            acc[key] = INITIAL_ADJUSTMENTS[key as keyof Adjustments];
+            return acc;
+          }, {}),
+        sectionVisibility: { ...INITIAL_ADJUSTMENTS.sectionVisibility },
+      }),
+      'Reset Adjustments',
+    );
   };
 
   const handleToggleSection = (section: string) => {

@@ -17,17 +17,24 @@ import {
 import { calculateCenteredCrop } from '../utils/cropUtils';
 import { Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
-
-export const debouncedSetHistory = debounce((newAdj: Adjustments) => {
-  useEditorStore.getState().pushHistory(newAdj);
-}, 500);
+import { inferHistoryLabel, serializeEditHistory } from '../utils/editHistory';
 
 export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustments) => {
-  invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: adjustmentsToSave }).catch((err) => {
+  const { history, historyIndex } = useEditorStore.getState();
+  const editHistory = serializeEditHistory(history, historyIndex);
+  invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: adjustmentsToSave, editHistory }).catch((err) => {
     console.error('Auto-save failed:', err);
     toast.error(`Failed to save changes: ${err}`);
   });
 }, 300);
+
+export const debouncedSetHistory = debounce((newAdj: Adjustments, label?: string) => {
+  const { selectedImage, pushHistory } = useEditorStore.getState();
+  pushHistory(newAdj, label);
+  if (selectedImage?.path) {
+    debouncedSave(selectedImage.path, newAdj);
+  }
+}, 500);
 
 const cloneCopyableAdjustments = (sourceAdjustments: Adjustments): Partial<Adjustments> => {
   const adjustmentsToCopy: Partial<Adjustments> = {};
@@ -75,19 +82,19 @@ const loadPasteUndoSnapshot = async (
   };
 };
 
-const saveAdjustmentsForPath = (path: string, adjustments: unknown) => {
-  return invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments });
+const saveAdjustmentsForPath = (path: string, adjustments: unknown, editHistory?: unknown) => {
+  return invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments, editHistory });
 };
 
 export function useEditorActions() {
   const setEditor = useEditorStore((s) => s.setEditor);
 
   const setAdjustments = useCallback(
-    (value: Partial<Adjustments> | ((prev: Adjustments) => Adjustments)) => {
+    (value: Partial<Adjustments> | ((prev: Adjustments) => Adjustments), historyLabel?: string) => {
       setEditor((state) => {
         const prev = state.adjustments;
         const newAdjustments = typeof value === 'function' ? value(prev) : { ...prev, ...value };
-        debouncedSetHistory(newAdjustments);
+        debouncedSetHistory(newAdjustments, historyLabel || inferHistoryLabel(prev, newAdjustments));
         return { adjustments: newAdjustments };
       });
     },
@@ -106,13 +113,16 @@ export function useEditorActions() {
           ? calculateCenteredCrop(selectedImage.width, selectedImage.height, newOrientationSteps, newAspectRatio)
           : null;
 
-      setAdjustments((prev) => ({
-        ...prev,
-        aspectRatio: newAspectRatio,
-        orientationSteps: newOrientationSteps,
-        rotation: 0,
-        crop: newCrop,
-      }));
+      setAdjustments(
+        (prev) => ({
+          ...prev,
+          aspectRatio: newAspectRatio,
+          orientationSteps: newOrientationSteps,
+          rotation: 0,
+          crop: newCrop,
+        }),
+        degrees > 0 ? 'Rotate Right' : 'Rotate Left',
+      );
     },
     [setAdjustments],
   );
@@ -122,11 +132,14 @@ export function useEditorActions() {
     if (!selectedImage?.isReady) return;
     try {
       const autoAdjustments: Adjustments = await invoke(Invokes.CalculateAutoAdjustments);
-      setAdjustments((prev: Adjustments) => ({
-        ...prev,
-        ...autoAdjustments,
-        sectionVisibility: { ...prev.sectionVisibility, ...autoAdjustments.sectionVisibility },
-      }));
+      setAdjustments(
+        (prev: Adjustments) => ({
+          ...prev,
+          ...autoAdjustments,
+          sectionVisibility: { ...prev.sectionVisibility, ...autoAdjustments.sectionVisibility },
+        }),
+        'Auto Adjustment',
+      );
     } catch (err) {
       toast.error(`Failed to apply auto adjustments: ${err}`);
     }
@@ -140,14 +153,17 @@ export function useEditorActions() {
         const name = isAndroid
           ? await invoke<string>('resolve_android_content_uri_name', { uriStr: path })
           : path.split(/[\\/]/).pop() || 'LUT';
-        setAdjustments((prev: Adjustments) => ({
-          ...prev,
-          lutPath: path,
-          lutName: name,
-          lutSize: result.size,
-          lutIntensity: 100,
-          sectionVisibility: { ...(prev.sectionVisibility || INITIAL_ADJUSTMENTS.sectionVisibility), effects: true },
-        }));
+        setAdjustments(
+          (prev: Adjustments) => ({
+            ...prev,
+            lutPath: path,
+            lutName: name,
+            lutSize: result.size,
+            lutIntensity: 100,
+            sectionVisibility: { ...(prev.sectionVisibility || INITIAL_ADJUSTMENTS.sectionVisibility), effects: true },
+          }),
+          'LUT',
+        );
       } catch (err) {
         toast.error(`Failed to load LUT: ${err}`);
       }
@@ -175,6 +191,7 @@ export function useEditorActions() {
             const resetData = { ...INITIAL_ADJUSTMENTS, aspectRatio: aspect, aiPatches: [] };
             resetHistory(resetData);
             setEditor({ adjustments: resetData });
+            useEditorStore.getState().pushHistory(resetData, 'Reset Adjustments');
           }
         })
         .catch((err) => toast.error(`Failed to reset adjustments: ${err}`));
@@ -272,7 +289,7 @@ export function useEditorActions() {
           (item) => item.path === selectedImage.path,
         )?.adjustments;
         if (nextActiveAdjustments) {
-          setAdjustments(nextActiveAdjustments);
+          setAdjustments(nextActiveAdjustments, 'Paste Adjustments');
         }
       }
 
@@ -331,6 +348,7 @@ export function useEditorActions() {
       if (activeSnapshot) {
         setEditor({ suppressNextMultiSelectionSync: true });
         resetHistory(structuredClone(activeSnapshot.normalizedAdjustments));
+        useEditorStore.getState().pushHistory(structuredClone(activeSnapshot.normalizedAdjustments), 'Undo Paste');
       }
 
       if (libraryActiveSnapshot) {

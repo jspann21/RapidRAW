@@ -96,7 +96,7 @@ export function useAiMasking() {
           ),
         };
         setEditor({ adjustments: completedAdjustments });
-        pushHistory(completedAdjustments);
+        pushHistory(completedAdjustments, useFastInpaint ? 'Inpaint Selection' : 'Generative Replace');
         setEditor({ activeAiPatchContainerId: null, activeAiSubMaskId: null });
       } catch (err) {
         toast.error(`AI Replace Failed: ${err}`);
@@ -194,7 +194,7 @@ export function useAiMasking() {
           ),
         };
         setEditor({ adjustments: completedAdjustments });
-        pushHistory(completedAdjustments);
+        pushHistory(completedAdjustments, 'Quick Erase');
         setEditor({ activeAiPatchContainerId: null, activeAiSubMaskId: null });
       } catch (err: any) {
         toast.error(`Quick Erase Failed: ${err.message || String(err)}`);

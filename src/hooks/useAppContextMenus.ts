@@ -56,6 +56,7 @@ const RIGHT_PANEL_ORDER = [
   Panel.Masks,
   Panel.Ai,
   Panel.Presets,
+  Panel.History,
   Panel.Export,
 ];
 
@@ -353,6 +354,9 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                   aiPatches: [],
                 });
                 setEditor({ adjustments: { ...INITIAL_ADJUSTMENTS, aspectRatio: originalAspectRatio, aiPatches: [] } });
+                useEditorStore
+                  .getState()
+                  .pushHistory({ ...INITIAL_ADJUSTMENTS, aspectRatio: originalAspectRatio, aiPatches: [] }, 'Reset Adjustments');
               },
             },
           ],
@@ -518,7 +522,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               if (metadata.adjustments && !metadata.adjustments.is_null) {
                 const normalized = normalizeLoadedAdjustments(metadata.adjustments);
                 setEditor({ adjustments: normalized });
-                useEditorStore.getState().resetHistory(normalized);
+                useEditorStore.getState().resetHistory(normalized, metadata.editHistory);
               }
             }
             if (libraryActivePath && finalSelection.includes(libraryActivePath)) {

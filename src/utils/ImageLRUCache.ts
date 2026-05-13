@@ -1,7 +1,10 @@
 import type { Adjustments } from './adjustments';
+import type { EditHistoryEntry } from './editHistory';
 
 export interface ImageCacheEntry {
   adjustments: Adjustments;
+  history?: EditHistoryEntry[];
+  historyIndex?: number;
   histogram: any;
   waveform: any;
   finalPreviewUrl: string | null;

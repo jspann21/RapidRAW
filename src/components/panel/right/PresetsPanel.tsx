@@ -645,10 +645,13 @@ export default function PresetsPanel({ onNavigateToCommunity }: PresetsPanelProp
   ]);
 
   const handleApplyPreset = (preset: Preset) => {
-    setAdjustments((prevAdjustments: Adjustments) => ({
-      ...prevAdjustments,
-      ...preset.adjustments,
-    }));
+    setAdjustments(
+      (prevAdjustments: Adjustments) => ({
+        ...prevAdjustments,
+        ...preset.adjustments,
+      }),
+      `Preset: ${preset.name}`,
+    );
   };
 
   const handleSaveConfiguredPreset = async (

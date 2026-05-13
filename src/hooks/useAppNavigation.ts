@@ -177,7 +177,11 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         });
 
         setEditor({ adjustments: cached.adjustments });
-        resetHistory(cached.adjustments);
+        resetHistory(cached.adjustments, {
+          version: 1,
+          currentIndex: cached.historyIndex ?? 0,
+          entries: cached.history ?? [],
+        });
         prevAdjustmentsRef.current = { path, adjustments: cached.adjustments };
 
         setLibrary({ isViewLoading: false });
@@ -211,9 +215,14 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
             }
             if (!isSliderDragging && JSON.stringify(cached.adjustments) !== JSON.stringify(freshAdjustments)) {
               setEditor({ adjustments: freshAdjustments });
-              resetHistory(freshAdjustments);
+              resetHistory(freshAdjustments, metadata.editHistory);
               prevAdjustmentsRef.current = { path, adjustments: freshAdjustments };
-              globalImageCache.set(path, { ...cached, adjustments: freshAdjustments });
+              globalImageCache.set(path, {
+                ...cached,
+                adjustments: freshAdjustments,
+                history: useEditorStore.getState().history,
+                historyIndex: useEditorStore.getState().historyIndex,
+              });
             }
           })
           .catch((err) => console.error('Failed background metadata sync on cache hit:', err));

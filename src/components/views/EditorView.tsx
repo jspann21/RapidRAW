@@ -13,6 +13,7 @@ import CropPanel from '../panel/right/CropPanel';
 import MasksPanel from '../panel/right/MasksPanel';
 import AIPanel from '../panel/right/AIPanel';
 import PresetsPanel from '../panel/right/PresetsPanel';
+import HistoryPanel from '../panel/right/HistoryPanel';
 import ExportPanel from '../panel/right/ExportPanel';
 
 import { useEditorStore } from '../../store/useEditorStore';
@@ -225,6 +226,7 @@ export default function EditorView({
               }}
             />
           )}
+          {renderedRightPanel === Panel.History && <HistoryPanel />}
           {renderedRightPanel === Panel.Export && (
             <ExportPanel
               exportState={exportState}

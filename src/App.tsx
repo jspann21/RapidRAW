@@ -63,6 +63,7 @@ const RIGHT_PANEL_ORDER = [
   Panel.Masks,
   Panel.Ai,
   Panel.Presets,
+  Panel.History,
   Panel.Export,
 ];
 
