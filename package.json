@@ -9,6 +9,7 @@
     "start": "tauri dev",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "test:history": "node scripts/run-edit-history-tests.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
