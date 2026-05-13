@@ -28,12 +28,16 @@ export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustme
   });
 }, 300);
 
-export const debouncedSetHistory = debounce((newAdj: Adjustments, label?: string) => {
+const commitHistory = (newAdj: Adjustments, label?: string) => {
   const { selectedImage, pushHistory } = useEditorStore.getState();
   pushHistory(newAdj, label);
   if (selectedImage?.path) {
     debouncedSave(selectedImage.path, newAdj);
   }
+};
+
+export const debouncedSetHistory = debounce((newAdj: Adjustments, label?: string) => {
+  commitHistory(newAdj, label);
 }, 500);
 
 const cloneCopyableAdjustments = (sourceAdjustments: Adjustments): Partial<Adjustments> => {
@@ -94,7 +98,12 @@ export function useEditorActions() {
       setEditor((state) => {
         const prev = state.adjustments;
         const newAdjustments = typeof value === 'function' ? value(prev) : { ...prev, ...value };
-        debouncedSetHistory(newAdjustments, historyLabel || inferHistoryLabel(prev, newAdjustments));
+        if (historyLabel) {
+          debouncedSetHistory.cancel();
+          queueMicrotask(() => commitHistory(newAdjustments, historyLabel));
+        } else {
+          debouncedSetHistory(newAdjustments, inferHistoryLabel(prev, newAdjustments));
+        }
         return { adjustments: newAdjustments };
       });
     },
