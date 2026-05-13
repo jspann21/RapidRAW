@@ -55,6 +55,7 @@ import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useOsPlatform } from '../../hooks/useOsPlatform';
 
 interface ConfirmModalState {
+  cancelText?: string;
   confirmText: string;
   confirmVariant: string;
   isOpen: boolean;
@@ -1296,6 +1297,50 @@ export default function SettingsPanel({
     }
   };
 
+  const executeDisableGooglePhotosIntegration = async () => {
+    await onSettingsChange({ ...appSettings, googlePhotosIntegrationEnabled: false });
+    const savedAlbumTitle = appSettings?.googlePhotosAlbumTitle || googlePhotosAlbumTitleInput || 'RapidRaw';
+    setGooglePhotosMessage(
+      appSettings?.googlePhotosAlbumId
+        ? `Google Photos sync is off. The album "${savedAlbumTitle}" was not deleted and will be reused if you turn sync back on.`
+        : 'Google Photos sync is off. Saved Google Photos settings were kept.',
+    );
+  };
+
+  const handleGooglePhotosIntegrationToggle = (checked: boolean) => {
+    if (checked) {
+      onSettingsChange({ ...appSettings, googlePhotosIntegrationEnabled: true });
+      if (appSettings?.googlePhotosAlbumId) {
+        const savedAlbumTitle = appSettings?.googlePhotosAlbumTitle || googlePhotosAlbumTitleInput || 'RapidRaw';
+        setGooglePhotosMessage(`Google Photos sync is on. RapidRAW will use "${savedAlbumTitle}".`);
+      } else {
+        setGooglePhotosMessage('Google Photos sync is on. Sign in and create an album before syncing photos.');
+      }
+      return;
+    }
+
+    if (!appSettings?.googlePhotosIntegrationEnabled) {
+      return;
+    }
+
+    const savedAlbumTitle = appSettings?.googlePhotosAlbumTitle || googlePhotosAlbumTitleInput || 'RapidRaw';
+    const albumLine = appSettings?.googlePhotosAlbumId
+      ? `\n\nSaved album: "${savedAlbumTitle}".`
+      : '';
+    setConfirmModalState({
+      cancelText: 'Keep Sync On',
+      confirmText: 'Turn Off Sync',
+      confirmVariant: 'destructive',
+      isOpen: true,
+      message:
+        `RapidRAW will stop syncing to Google Photos and hide the Google Photos album from the folder sidebar.${albumLine}\n\nThis does not delete the album or photos from Google Photos. Your Google Photos credentials, album ID, and album title stay saved locally, so turning Google Photos back on will reuse the same album settings.`,
+      onConfirm: () => {
+        void executeDisableGooglePhotosIntegration();
+      },
+      title: 'Turn Off Google Photos Sync?',
+    });
+  };
+
   const handleGooglePhotosCreateAlbum = async () => {
     setGooglePhotosBusy(true);
     setGooglePhotosMessage('Creating Google Photos album...');
@@ -1501,6 +1546,9 @@ export default function SettingsPanel({
           : missingLocalAiRuntimeDependencies.length
             ? 'Install the missing CUDA runtime shown above.'
             : 'Local GPU setup is incomplete.';
+  const googlePhotosIntegrationEnabled = appSettings?.googlePhotosIntegrationEnabled ?? false;
+  const savedGooglePhotosAlbumTitle = appSettings?.googlePhotosAlbumTitle || googlePhotosAlbumTitleInput || 'RapidRaw';
+  const hasSavedGooglePhotosAlbum = Boolean(appSettings?.googlePhotosAlbumId);
 
   return (
     <>
@@ -3538,13 +3586,17 @@ export default function SettingsPanel({
                       description="Uses Google OAuth for desktop apps with a system browser, PKCE, a local loopback redirect, and app-created Google Photos data scopes."
                     >
                       <Switch
-                        checked={appSettings?.googlePhotosIntegrationEnabled ?? false}
+                        checked={googlePhotosIntegrationEnabled}
                         id="google-photos-integration-toggle"
                         label="Enable Google Photos"
-                        onChange={(checked) =>
-                          onSettingsChange({ ...appSettings, googlePhotosIntegrationEnabled: checked })
-                        }
+                        onChange={handleGooglePhotosIntegrationToggle}
                       />
+                      {!googlePhotosIntegrationEnabled && hasSavedGooglePhotosAlbum && (
+                        <Text variant={TextVariants.small} className="block mt-3">
+                          Sync is off. The Google Photos album "{savedGooglePhotosAlbumTitle}" is hidden in RapidRAW, but
+                          the saved album settings are kept for when you turn sync back on.
+                        </Text>
+                      )}
                     </SettingItem>
 
                     <div className="grid grid-cols-1 min-[900px]:grid-cols-2 gap-4">
@@ -3604,6 +3656,8 @@ export default function SettingsPanel({
                         <div>
                           <Text variant={TextVariants.heading}>Connection Status</Text>
                           <Text variant={TextVariants.small}>
+                            {googlePhotosIntegrationEnabled ? 'Sync on' : 'Sync off'}
+                            {' · '}
                             {googlePhotosStatus?.authenticated ? 'Connected' : 'Not connected'}
                             {googlePhotosStatus?.syncedCount ? ` · ${googlePhotosStatus.syncedCount} synced` : ''}
                           </Text>
