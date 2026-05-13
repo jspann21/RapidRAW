@@ -4,12 +4,12 @@ This fork adds several workflow and AI features on top of upstream RapidRAW:
 
 - **Local GPU AI editing:** Windows/NVIDIA CUDA support for local LaMa inpainting plus prompt-based SDXL generative replace.
 - **Managed ComfyUI runtime:** install, start, stop, test, and delete a bundled ComfyUI portable runtime from Settings, including the crop-and-stitch nodes and required SDXL, ControlNet, and VAE assets.
+- **History panel:** track and save edits for each image and display in a history sidebar.
 - **Google Photos album sync:** desktop OAuth login, app-created album management, file sync/unsync, synced-item tracking, and library indicators.
 - **Drag-and-drop library organization:** drag images directly into folders to move them
 - **Multiple folder sidebar** save folders for quick access and show recently opened folders list
 - **Library validation upgrades:** improved date-folder and filename validation for more reliable imports and renames.
 - **Adjustment workflow upgrades:** copy/paste adjustment refactors with undo support and context-menu integration.
-- **Tooling refresh:** dependency updates including the Vite/Rolldown build stack and related package-lock updates.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/CyberTimon/RapidRAW/assets/.github/assets/editor.png" alt="RapidRAW Editor">
