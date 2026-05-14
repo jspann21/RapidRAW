@@ -47,10 +47,6 @@ pub fn hydrate_sub_masks(
 pub fn hydrate_adjustments(state: &tauri::State<AppState>, adjustments: &mut serde_json::Value) {
     let mut cache = state.patch_cache.lock().unwrap();
 
-    if cache.len() > 20 {
-        cache.clear();
-    }
-
     if let Some(patches) = adjustments
         .get_mut("aiPatches")
         .and_then(|v| v.as_array_mut())
@@ -91,6 +87,19 @@ pub fn hydrate_adjustments(state: &tauri::State<AppState>, adjustments: &mut ser
                 hydrate_sub_masks(sub_masks, &mut cache);
             }
         }
+    }
+}
+
+#[tauri::command]
+pub fn clear_session_caches(state: tauri::State<AppState>) {
+    if let Ok(mut patch_cache) = state.patch_cache.lock() {
+        patch_cache.clear();
+    }
+    if let Ok(mut mask_cache) = state.mask_cache.lock() {
+        mask_cache.clear();
+    }
+    if let Ok(mut geometry_cache) = state.geometry_cache.lock() {
+        geometry_cache.clear();
     }
 }
 

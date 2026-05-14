@@ -156,9 +156,9 @@ function App() {
     })),
   );
 
-  const { rootPath, currentFolderPath, expandedFolders, multiSelectedPaths, setLibrary } = useLibraryStore(
+  const { rootPaths, currentFolderPath, expandedFolders, multiSelectedPaths, setLibrary } = useLibraryStore(
     useShallow((state) => ({
-      rootPath: state.rootPath,
+      rootPaths: state.rootPaths,
       currentFolderPath: state.currentFolderPath,
       expandedFolders: state.expandedFolders,
       multiSelectedPaths: state.multiSelectedPaths,
@@ -226,9 +226,9 @@ function App() {
 
   const transformWrapperRef = useRef<any>(null);
   const preloadedDataRef = useRef<{
-    tree?: Promise<any>;
+    trees?: Promise<any>;
     images?: Promise<ImageFile[]>;
-    rootPath?: string;
+    rootPaths?: string[];
     currentPath?: string;
   }>({});
 
@@ -303,6 +303,7 @@ function App() {
     handleImageSelect,
     handleSelectSubfolder,
     handleSelectGooglePhotosAlbum,
+    handleSelectAlbum,
     handleOpenFolder,
     handleContinueSession,
   } = useAppNavigation({
@@ -319,6 +320,8 @@ function App() {
     refreshAllFolderTrees,
     handleTogglePinFolder,
     handleRemoveRecentFolder,
+    handleCreateAlbumItem,
+    handleRenameAlbumItem,
   } = useLibraryActions(handleImageSelect);
 
   const sortedImageList = useSortedLibrary();
@@ -329,9 +332,27 @@ function App() {
       return;
     }
     if (currentFolderPath) {
-      await handleSelectSubfolder(currentFolderPath, false);
+      if (currentFolderPath.startsWith('Album: ')) {
+        const { activeAlbumId, albumTree } = useLibraryStore.getState();
+        if (activeAlbumId) {
+          const findObj = (nodes: any[]): any => {
+            for (const n of nodes) {
+              if (n.id === activeAlbumId) return n;
+              if (n.type === 'group') {
+                const f = findObj(n.children);
+                if (f) return f;
+              }
+            }
+            return null;
+          };
+          const album = findObj(albumTree);
+          if (album) await handleSelectAlbum(album.id, album.name, album.images);
+        }
+      } else {
+        await handleSelectSubfolder(currentFolderPath, false);
+      }
     }
-  }, [currentFolderPath, handleSelectSubfolder, handleSelectGooglePhotosAlbum]);
+  }, [currentFolderPath, handleSelectSubfolder, handleSelectGooglePhotosAlbum, handleSelectAlbum]);
 
   const {
     executeDelete,
@@ -353,7 +374,7 @@ function App() {
   );
 
   useEffect(() => {
-    if (!rootPath) return;
+    if (!rootPaths.length) return;
 
     const getElementUnderPointer = (event: PointerEvent) => document.elementFromPoint(event.clientX, event.clientY);
     const getDropTarget = (event: PointerEvent) => getFolderDropTargetPath(getElementUnderPointer(event));
@@ -461,7 +482,7 @@ function App() {
       document.removeEventListener('pointercancel', handleDocumentPointerCancel, true);
       document.removeEventListener('click', handleDocumentClick, true);
     };
-  }, [rootPath, handleMoveFilesToFolder]);
+  }, [rootPaths.length, handleMoveFilesToFolder]);
 
   const {
     handleStartPanorama,
@@ -478,6 +499,7 @@ function App() {
     handleEditorContextMenu,
     handleThumbnailContextMenu,
     handleFolderTreeContextMenu,
+    handleAlbumTreeContextMenu,
     handleMainLibraryContextMenu,
   } = useAppContextMenus({
     handleImageSelect,
@@ -698,7 +720,9 @@ function App() {
           path,
           showImageCounts: showCounts,
         });
-        setLibrary((state) => ({ folderTree: insertChildrenIntoTree(state.folderTree, path, newChildren) }));
+        setLibrary((state) => ({
+          folderTrees: state.folderTrees.map((t: any) => insertChildrenIntoTree(t, path, newChildren)),
+        }));
         setLibrary((state) => ({
           pinnedFolderTrees: state.pinnedFolderTrees.map((tree) => insertChildrenIntoTree(tree, path, newChildren)),
         }));
@@ -709,8 +733,10 @@ function App() {
     [expandedFolders, appSettings?.enableFolderImageCounts, setLibrary],
   );
 
+  const hasRoots = rootPaths && rootPaths.length > 0;
+
   const renderFolderTree = () => {
-    if (!rootPath) return null;
+    if (!hasRoots) return null;
 
     return (
       <div
@@ -730,7 +756,10 @@ function App() {
           onFolderSelect={(path, options) => handleSelectSubfolder(path, !!options?.asSessionRoot)}
           onGooglePhotosSelect={handleSelectGooglePhotosAlbum}
           onRecentFolderRemove={handleRemoveRecentFolder}
+          onAlbumContextMenu={handleAlbumTreeContextMenu}
+          onSelectAlbum={handleSelectAlbum}
           onToggleFolder={handleToggleFolder}
+          onOpenFolder={handleOpenFolder}
           setIsVisible={(value: boolean) =>
             setUI((state) => ({ uiVisibility: { ...state.uiVisibility, folderTree: value } }))
           }
@@ -775,8 +804,8 @@ function App() {
         <div
           className={clsx(
             'flex-1 flex flex-col min-h-0',
-            isLayoutReady && rootPath && !isInstantTransition && 'transition-all duration-300 ease-in-out',
-            [rootPath && (isFullScreen ? 'p-0 gap-0' : 'p-2 gap-2')],
+            isLayoutReady && hasRoots && !isInstantTransition && 'transition-all duration-300 ease-in-out',
+            [hasRoots && (isFullScreen ? 'p-0 gap-0' : 'p-2 gap-2')],
           )}
         >
           <div className="flex flex-row grow h-full min-h-0">
@@ -853,7 +882,7 @@ function App() {
                 setExportState={setExportState}
                 appSettings={appSettings}
                 onSettingsChange={handleSettingsChange}
-                rootPath={rootPath}
+                rootPaths={rootPaths}
               />
             </div>
           </div>
@@ -876,6 +905,8 @@ function App() {
           handleRate={handleRate}
           executeDelete={executeDelete}
           handleSaveCollage={handleSaveCollage}
+          handleCreateAlbumItem={handleCreateAlbumItem}
+          handleRenameAlbumItem={handleRenameAlbumItem}
         />
         {libraryDragPreview && (
           <div

@@ -122,7 +122,7 @@ function ListHeader({
   );
 }
 
-const groupImagesByFolder = (images: any[], rootPath: string | null) => {
+const groupImagesByFolder = (images: any[], baseFolderPath: string | null) => {
   const groups: Record<string, any[]> = {};
 
   images.forEach((img) => {
@@ -138,8 +138,8 @@ const groupImagesByFolder = (images: any[], rootPath: string | null) => {
   });
 
   const sortedKeys = Object.keys(groups).sort((a, b) => {
-    if (a === rootPath) return -1;
-    if (b === rootPath) return 1;
+    if (a === baseFolderPath) return -1;
+    if (b === baseFolderPath) return 1;
     return a.localeCompare(b);
   });
 
@@ -523,7 +523,7 @@ export default function LibraryGrid(props: any) {
               thumbnailAspectRatio,
               loadedThumbnails: loadedThumbnailsRef.current,
               imageRatings,
-              rootPath: currentFolderPath,
+              baseFolderPath: currentFolderPath,
               itemWidth: gridData.itemWidth,
               itemHeight: gridData.isListView ? gridData.listRowHeight : gridData.itemWidth,
               outerPadding: gridData.OUTER_PADDING,

@@ -116,12 +116,12 @@ export default function EditorView({
     })),
   );
 
-  const { multiSelectedPaths, imageRatings, isViewLoading, rootPath } = useLibraryStore(
+  const { multiSelectedPaths, imageRatings, isViewLoading, rootPaths } = useLibraryStore(
     useShallow((state) => ({
       multiSelectedPaths: state.multiSelectedPaths,
       imageRatings: state.imageRatings,
       isViewLoading: state.isViewLoading,
-      rootPath: state.rootPath,
+      rootPaths: state.rootPaths,
     })),
   );
 
@@ -235,7 +235,7 @@ export default function EditorView({
               setExportState={setExportState}
               appSettings={appSettings}
               onSettingsChange={handleSettingsChange}
-              rootPath={rootPath}
+              rootPaths={rootPaths}
             />
           )}
           {renderedRightPanel === Panel.Ai && <AIPanel />}

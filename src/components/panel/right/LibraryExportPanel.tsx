@@ -36,7 +36,7 @@ interface LibraryExportPanelProps {
   imageList: ImageFile[];
   appSettings: AppSettings | null;
   onSettingsChange: (settings: AppSettings) => void;
-  rootPath: string | null;
+  rootPaths: string[];
 }
 
 interface SectionProps {
@@ -178,7 +178,7 @@ export default function LibraryExportPanel({
   imageList: _imageList,
   appSettings,
   onSettingsChange,
-  rootPath,
+  rootPaths,
 }: LibraryExportPanelProps) {
   const {
     fileFormat,
@@ -483,7 +483,7 @@ export default function LibraryExportPanel({
           outputFolder: outputFolder as string,
           outputFormat: FILE_FORMATS.find((f: FileFormat) => f.id === fileFormat)?.extensions[0],
           paths: multiSelectedPaths,
-          baseOriginFolder: rootPath,
+          baseOriginFolders: rootPaths,
         });
       }
     } catch (error) {

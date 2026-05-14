@@ -1,5 +1,12 @@
 import { create } from 'zustand';
-import { FilterCriteria, ImageFile, RawStatus, SortCriteria, SortDirection } from '../components/ui/AppProperties';
+import {
+  FilterCriteria,
+  ImageFile,
+  RawStatus,
+  SortCriteria,
+  SortDirection,
+  AlbumItem,
+} from '../components/ui/AppProperties';
 import { Adjustments, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 import { ColumnWidths } from '../components/panel/MainLibrary';
 
@@ -11,11 +18,16 @@ export interface SearchCriteria {
 
 interface LibraryState {
   // Paths & Trees
-  rootPath: string | null;
+  rootPaths: string[];
   currentFolderPath: string | null;
   expandedFolders: Set<string>;
-  folderTree: any;
+  folderTrees: any[];
   pinnedFolderTrees: any[];
+
+  // Albums
+  albumTree: AlbumItem[];
+  activeAlbumId: string | null;
+  expandedAlbumGroups: Set<string>;
 
   // Images & Selection
   imageList: Array<ImageFile>;
@@ -47,11 +59,15 @@ interface LibraryState {
 }
 
 export const useLibraryStore = create<LibraryState>((set) => ({
-  rootPath: null,
+  rootPaths: [],
   currentFolderPath: null,
   expandedFolders: new Set<string>(),
-  folderTree: null,
+  folderTrees: [],
   pinnedFolderTrees: [],
+
+  albumTree: [],
+  activeAlbumId: null,
+  expandedAlbumGroups: new Set<string>(),
 
   imageList: [],
   imageRatings: {},

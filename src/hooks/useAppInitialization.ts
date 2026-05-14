@@ -68,10 +68,24 @@ export const useAppInitialization = ({
     })),
   );
 
-  const { sortCriteria, filterCriteria, setSortCriteria, setFilterCriteria, setLibrary } = useLibraryStore(
+  const {
+    sortCriteria,
+    filterCriteria,
+    currentFolderPath,
+    expandedFolders,
+    activeAlbumId,
+    expandedAlbumGroups,
+    setSortCriteria,
+    setFilterCriteria,
+    setLibrary,
+  } = useLibraryStore(
     useShallow((state) => ({
       sortCriteria: state.sortCriteria,
       filterCriteria: state.filterCriteria,
+      currentFolderPath: state.currentFolderPath,
+      expandedFolders: state.expandedFolders,
+      activeAlbumId: state.activeAlbumId,
+      expandedAlbumGroups: state.expandedAlbumGroups,
       setSortCriteria: state.setSortCriteria,
       setFilterCriteria: state.setFilterCriteria,
       setLibrary: state.setLibrary,
@@ -153,24 +167,37 @@ export const useAppInitialization = ({
           }
         }
 
-        if (!isAndroid && settings.lastRootPath) {
-          const root = settings.lastRootPath;
-          const currentPath = settings.lastFolderState?.currentFolderPath || root;
+        const rootFolders = settings.rootFolders?.length
+          ? settings.rootFolders
+          : settings.lastRootPath
+            ? [settings.lastRootPath]
+            : [];
+
+        if (!isAndroid && rootFolders.length > 0) {
+          const currentPath = settings.lastFolderState?.currentFolderPath || rootFolders[0];
+          const isAlbum = currentPath.startsWith('Album: ');
           const command =
             settings.libraryViewMode === LibraryViewMode.Recursive
               ? Invokes.ListImagesRecursive
               : Invokes.ListImagesInDir;
 
           preloadedDataRef.current = {
-            rootPath: root,
+            rootPaths: rootFolders,
             currentPath: currentPath,
-            tree: invoke(Invokes.GetFolderTree, {
-              path: root,
-              expandedFolders: settings.lastFolderState?.expandedFolders ?? [root],
+            trees: invoke(Invokes.GetPinnedFolderTrees, {
+              paths: rootFolders,
+              expandedFolders: settings.lastFolderState?.expandedFolders ?? rootFolders,
               showImageCounts: settings.enableFolderImageCounts ?? false,
             }),
-            images: invoke(command, { path: currentPath }),
+            images: isAlbum ? undefined : invoke(command, { path: currentPath }),
           };
+        }
+
+        if (settings?.lastFolderState) {
+          setLibrary({
+            expandedFolders: new Set(settings.lastFolderState.expandedFolders || []),
+            expandedAlbumGroups: new Set(settings.lastFolderState.expandedAlbumGroups || []),
+          });
         }
 
         invoke('frontend_ready').catch((e) => console.error('Failed to notify backend of readiness:', e));
@@ -204,7 +231,6 @@ export const useAppInitialization = ({
     setThumbnailAspectRatio,
   ]);
 
-  // 4. Settings Synchronization Effects
   useEffect(() => {
     if (isInitialMount.current || !appSettings) return;
     if (JSON.stringify(appSettings.uiVisibility) !== JSON.stringify(uiVisibility)) {
@@ -246,6 +272,39 @@ export const useAppInitialization = ({
       handleSettingsChange({ ...appSettings, filterCriteria });
     }
   }, [filterCriteria, appSettings, handleSettingsChange]);
+
+  useEffect(() => {
+    if (isInitialMount.current || !appSettings) return;
+    if (!currentFolderPath && !activeAlbumId) return;
+
+    const currentExpanded = Array.from(expandedFolders);
+    const currentExpandedAlbums = Array.from(expandedAlbumGroups);
+
+    const prevFolderState = appSettings.lastFolderState || {
+      currentFolderPath: null,
+      expandedFolders: [],
+      activeAlbumId: null,
+      expandedAlbumGroups: [],
+    };
+
+    const pathChanged = prevFolderState.currentFolderPath !== currentFolderPath;
+    const expandedChanged = JSON.stringify(prevFolderState.expandedFolders || []) !== JSON.stringify(currentExpanded);
+    const albumChanged = prevFolderState.activeAlbumId !== activeAlbumId;
+    const albumExpandedChanged =
+      JSON.stringify(prevFolderState.expandedAlbumGroups || []) !== JSON.stringify(currentExpandedAlbums);
+
+    if (pathChanged || expandedChanged || albumChanged || albumExpandedChanged) {
+      handleSettingsChange({
+        ...appSettings,
+        lastFolderState: {
+          currentFolderPath,
+          expandedFolders: currentExpanded,
+          activeAlbumId,
+          expandedAlbumGroups: currentExpandedAlbums,
+        },
+      });
+    }
+  }, [currentFolderPath, expandedFolders, activeAlbumId, expandedAlbumGroups, appSettings, handleSettingsChange]);
 
   useEffect(() => {
     const root = document.documentElement;

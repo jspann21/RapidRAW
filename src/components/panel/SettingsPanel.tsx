@@ -96,7 +96,7 @@ interface SettingsPanelProps {
   onBack(): void;
   onLibraryRefresh(): void;
   onSettingsChange(settings: any): Promise<void>;
-  rootPath: string | null;
+  rootPaths: string[];
 }
 
 interface TestStatus {
@@ -563,7 +563,7 @@ export default function SettingsPanel({
   onBack,
   onLibraryRefresh,
   onSettingsChange,
-  rootPath,
+  rootPaths,
 }: SettingsPanelProps) {
   const { user: _user } = useUser();
   const [isClearing, setIsClearing] = useState(false);
@@ -1025,14 +1025,18 @@ export default function SettingsPanel({
     onSettingsChange({ ...appSettings, myLenses: newLenses });
   };
 
-  const effectiveRootPath = rootPath || appSettings?.lastRootPath;
+  const effectiveRootPaths = rootPaths?.length > 0 ? rootPaths : appSettings?.rootFolders || [];
 
   const executeClearSidecars = async () => {
     setIsClearing(true);
     setClearMessage('Deleting sidecar files, please wait...');
     try {
-      const count: number = await invoke(Invokes.ClearAllSidecars, { rootPath: effectiveRootPath });
-      setClearMessage(`${count} sidecar files deleted successfully.`);
+      let totalCount = 0;
+      for (const root of effectiveRootPaths) {
+        const count: number = await invoke(Invokes.ClearAllSidecars, { rootPath: root });
+        totalCount += count;
+      }
+      setClearMessage(`${totalCount} sidecar files deleted successfully.`);
       onLibraryRefresh();
     } catch (err: any) {
       console.error('Failed to clear sidecars:', err);
@@ -1051,7 +1055,7 @@ export default function SettingsPanel({
       confirmVariant: 'destructive',
       isOpen: true,
       message:
-        'Are you sure you want to delete all sidecar files?\n\nThis will permanently remove all your edits for all images inside the current base folder and its subfolders.',
+        'Are you sure you want to delete all sidecar files?\n\nThis will permanently remove all your edits for all images inside all active root folders and their subfolders.',
       onConfirm: executeClearSidecars,
       title: 'Confirm Deletion',
     });
@@ -1061,8 +1065,12 @@ export default function SettingsPanel({
     setIsClearingAiTags(true);
     setAiTagsClearMessage('Clearing AI tags from all sidecar files...');
     try {
-      const count: number = await invoke(Invokes.ClearAiTags, { rootPath: effectiveRootPath });
-      setAiTagsClearMessage(`${count} files updated. AI tags removed.`);
+      let totalCount = 0;
+      for (const root of effectiveRootPaths) {
+        const count: number = await invoke(Invokes.ClearAiTags, { rootPath: root });
+        totalCount += count;
+      }
+      setAiTagsClearMessage(`${totalCount} files updated. AI tags removed.`);
       onLibraryRefresh();
     } catch (err: any) {
       console.error('Failed to clear AI tags:', err);
@@ -1081,7 +1089,7 @@ export default function SettingsPanel({
       confirmVariant: 'destructive',
       isOpen: true,
       message:
-        'Are you sure you want to remove all AI-generated tags from all images in the current base folder?\n\nThis will not affect user-added tags. This action cannot be undone.',
+        'Are you sure you want to remove all AI-generated tags from all images in all active root folders?\n\nThis will not affect user-added tags. This action cannot be undone.',
       onConfirm: executeClearAiTags,
       title: 'Confirm AI Tag Deletion',
     });
@@ -1091,8 +1099,12 @@ export default function SettingsPanel({
     setIsClearingTags(true);
     setTagsClearMessage('Clearing all tags from sidecar files...');
     try {
-      const count: number = await invoke(Invokes.ClearAllTags, { rootPath: effectiveRootPath });
-      setTagsClearMessage(`${count} files updated. All non-color tags removed.`);
+      let totalCount = 0;
+      for (const root of effectiveRootPaths) {
+        const count: number = await invoke(Invokes.ClearAllTags, { rootPath: root });
+        totalCount += count;
+      }
+      setTagsClearMessage(`${totalCount} files updated. All non-color tags removed.`);
       onLibraryRefresh();
     } catch (err: any) {
       console.error('Failed to clear tags:', err);
@@ -1111,7 +1123,7 @@ export default function SettingsPanel({
       confirmVariant: 'destructive',
       isOpen: true,
       message:
-        'Are you sure you want to remove all AI-generated and user-added tags from all images in the current base folder?\n\nThis action cannot be undone.',
+        'Are you sure you want to remove all AI-generated and user-added tags from all images in all active root folders?\n\nThis action cannot be undone.',
       onConfirm: executeClearTags,
       title: 'Confirm All Tag Deletion',
     });
@@ -2074,8 +2086,8 @@ export default function SettingsPanel({
                         <DataActionItem
                           buttonAction={handleClearAiTags}
                           buttonText="Clear"
-                          description="This will remove all AI-generated tags from your .rrdata files in the current base folder. User-added tags will be kept."
-                          disabled={!effectiveRootPath}
+                          description="This will remove all AI-generated tags from your .rrdata files in all active root folders. User-added tags will be kept."
+                          disabled={effectiveRootPaths.length === 0}
                           icon={<Trash2 size={16} className="mr-2" />}
                           isProcessing={isClearingAiTags}
                           message={aiTagsClearMessage}
@@ -2084,8 +2096,8 @@ export default function SettingsPanel({
                         <DataActionItem
                           buttonAction={handleClearTags}
                           buttonText="Clear"
-                          description="This will remove all AI-generated and user-added tags from your .rrdata files in the current base folder. Color labels will be kept."
-                          disabled={!effectiveRootPath}
+                          description="This will remove all AI-generated and user-added tags from your .rrdata files in all active root folders. Color labels will be kept."
+                          disabled={effectiveRootPaths.length === 0}
                           icon={<Trash2 size={16} className="mr-2" />}
                           isProcessing={isClearingTags}
                           message={tagsClearMessage}
@@ -3518,13 +3530,13 @@ export default function SettingsPanel({
                         <Text as="span" variant={TextVariants.small}>
                           This will delete all{' '}
                           <code className="bg-bg-primary px-1 rounded-sm text-text-primary">.rrdata</code> files
-                          (containing your edits) within the current base folder:
-                          <span className="block font-mono bg-bg-primary p-2 rounded-sm mt-2 break-all border border-border-color">
-                            {effectiveRootPath || 'No folder selected'}
+                          (containing your edits) within your root folders:
+                          <span className="block font-mono bg-bg-primary p-2 rounded-sm mt-2 break-all border border-border-color whitespace-pre-wrap">
+                            {effectiveRootPaths.length > 0 ? effectiveRootPaths.join('\n') : 'No folders selected'}
                           </span>
                         </Text>
                       }
-                      disabled={!effectiveRootPath}
+                      disabled={effectiveRootPaths.length === 0}
                       icon={<Trash2 size={16} className="mr-2" />}
                       isProcessing={isClearing}
                       message={clearMessage}

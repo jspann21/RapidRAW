@@ -1,5 +1,8 @@
 import { useShallow } from 'zustand/react/shallow';
+import { invoke } from '@tauri-apps/api/core';
+import { toast } from 'react-toastify';
 import { useUIStore } from '../../store/useUIStore';
+import { useLibraryStore } from '../../store/useLibraryStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useProcessStore } from '../../store/useProcessStore';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -15,7 +18,7 @@ import ConfirmModal from './ConfirmModal';
 import ImportSettingsModal from './ImportSettingsModal';
 import CullingModal from './CullingModal';
 import CollageModal from './CollageModal';
-import { AppSettings } from '../ui/AppProperties';
+import { AppSettings, Invokes, AlbumItem, Album, AlbumGroup } from '../ui/AppProperties';
 import { CopyPasteSettings } from '../../utils/adjustments';
 
 export interface AppModalsProps {
@@ -36,6 +39,8 @@ export interface AppModalsProps {
   handleRate: (rating: number, paths?: string[]) => void;
   executeDelete: (paths: string[], options: any) => Promise<void>;
   handleSaveCollage: (base64Data: string, firstPath: string) => Promise<string>;
+  handleCreateAlbumItem: (name: string, type: 'album' | 'group') => Promise<void>;
+  handleRenameAlbumItem: (newName: string) => Promise<void>;
 }
 
 export default function AppModals(props: AppModalsProps) {
@@ -55,6 +60,10 @@ export default function AppModals(props: AppModalsProps) {
     folderActionTarget,
     renameTargetPaths,
     importSourcePaths,
+    isCreateAlbumModalOpen,
+    isCreateAlbumGroupModalOpen,
+    isRenameAlbumModalOpen,
+    albumActionTarget,
     confirmModalState,
     panoramaModalState,
     hdrModalState,
@@ -73,6 +82,10 @@ export default function AppModals(props: AppModalsProps) {
       folderActionTarget: state.folderActionTarget,
       renameTargetPaths: state.renameTargetPaths,
       importSourcePaths: state.importSourcePaths,
+      isCreateAlbumModalOpen: state.isCreateAlbumModalOpen,
+      isCreateAlbumGroupModalOpen: state.isCreateAlbumGroupModalOpen,
+      isRenameAlbumModalOpen: state.isRenameAlbumModalOpen,
+      albumActionTarget: state.albumActionTarget,
       confirmModalState: state.confirmModalState,
       panoramaModalState: state.panoramaModalState,
       hdrModalState: state.hdrModalState,
@@ -101,6 +114,22 @@ export default function AppModals(props: AppModalsProps) {
   const closeConfirmModal = () => {
     setUI((state) => ({ confirmModalState: { ...state.confirmModalState, isOpen: false } }));
   };
+
+  const currentAlbumName = (() => {
+    if (!albumActionTarget) return '';
+    const { albumTree } = useLibraryStore.getState();
+    const findName = (nodes: AlbumItem[]): string | null => {
+      for (const n of nodes) {
+        if (n.id === albumActionTarget) return n.name;
+        if (n.type === 'group') {
+          const res = findName(n.children);
+          if (res) return res;
+        }
+      }
+      return null;
+    };
+    return findName(albumTree) || '';
+  })();
 
   return (
     <>
@@ -206,6 +235,8 @@ export default function AppModals(props: AppModalsProps) {
             : null
         }
       />
+
+      {/* Folders */}
       <CreateFolderModal
         isOpen={isCreateFolderModalOpen}
         onClose={() => setUI({ isCreateFolderModalOpen: false })}
@@ -217,6 +248,25 @@ export default function AppModals(props: AppModalsProps) {
         onClose={() => setUI({ isRenameFolderModalOpen: false })}
         onSave={props.handleRenameFolder}
       />
+
+      {/* Albums */}
+      <CreateFolderModal
+        isOpen={isCreateAlbumModalOpen}
+        onClose={() => setUI({ isCreateAlbumModalOpen: false })}
+        onSave={(name) => props.handleCreateAlbumItem(name, 'album')}
+      />
+      <CreateFolderModal
+        isOpen={isCreateAlbumGroupModalOpen}
+        onClose={() => setUI({ isCreateAlbumGroupModalOpen: false })}
+        onSave={(name) => props.handleCreateAlbumItem(name, 'group')}
+      />
+      <RenameFolderModal
+        currentName={currentAlbumName}
+        isOpen={isRenameAlbumModalOpen}
+        onClose={() => setUI({ isRenameAlbumModalOpen: false })}
+        onSave={props.handleRenameAlbumItem}
+      />
+
       <RenameFileModal
         filesToRename={renameTargetPaths}
         isOpen={isRenameFileModalOpen}

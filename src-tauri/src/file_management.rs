@@ -547,6 +547,270 @@ pub fn list_images_recursive(
     Ok(result_list)
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum AlbumItem {
+    Album {
+        id: String,
+        name: String,
+        icon: Option<String>,
+        images: Vec<String>,
+    },
+    Group {
+        id: String,
+        name: String,
+        icon: Option<String>,
+        children: Vec<AlbumItem>,
+    },
+}
+
+fn get_albums_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
+    let data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    let albums_dir = data_dir.join("albums");
+    if !albums_dir.exists() {
+        fs::create_dir_all(&albums_dir).map_err(|e| e.to_string())?;
+    }
+    Ok(albums_dir.join("albums.json"))
+}
+
+pub fn sort_album_tree(items: &mut [AlbumItem]) {
+    items.sort_by(|a, b| {
+        let get_sort_key = |item: &AlbumItem| match item {
+            AlbumItem::Group { name, .. } => (0, name.to_lowercase()),
+            AlbumItem::Album { name, .. } => (1, name.to_lowercase()),
+        };
+
+        let key_a = get_sort_key(a);
+        let key_b = get_sort_key(b);
+
+        key_a.cmp(&key_b)
+    });
+
+    for item in items.iter_mut() {
+        if let AlbumItem::Group { children, .. } = item {
+            sort_album_tree(children);
+        }
+    }
+}
+
+#[tauri::command]
+pub fn get_albums(app_handle: AppHandle) -> Result<Vec<AlbumItem>, String> {
+    let path = get_albums_path(&app_handle)?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let mut items: Vec<AlbumItem> = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    sort_album_tree(&mut items);
+    Ok(items)
+}
+
+#[tauri::command]
+pub fn save_albums(mut tree: Vec<AlbumItem>, app_handle: AppHandle) -> Result<(), String> {
+    let path = get_albums_path(&app_handle)?;
+    sort_album_tree(&mut tree);
+    let json_string = serde_json::to_string_pretty(&tree).map_err(|e| e.to_string())?;
+    fs::write(path, json_string).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn add_to_album(
+    album_id: String,
+    paths: Vec<String>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    let mut tree = get_albums(app_handle.clone())?;
+
+    fn add_recursive(items: &mut [AlbumItem], target_id: &str, paths_to_add: &Vec<String>) -> bool {
+        for item in items.iter_mut() {
+            #[allow(clippy::collapsible_match)]
+            match item {
+                AlbumItem::Album { id, images, .. } if id == target_id => {
+                    for p in paths_to_add {
+                        if !images.contains(p) {
+                            images.push(p.clone());
+                        }
+                    }
+                    return true;
+                }
+                AlbumItem::Group { children, .. } => {
+                    if add_recursive(children, target_id, paths_to_add) {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    if add_recursive(&mut tree, &album_id, &paths) {
+        save_albums(tree, app_handle)?;
+    }
+    Ok(())
+}
+
+fn sync_album_path_changes(
+    app_handle: &AppHandle,
+    renames: Option<&HashMap<String, String>>,
+    deletions: Option<&HashSet<String>>,
+    folder_rename: Option<(&str, &str)>,
+) {
+    if let Ok(mut tree) = get_albums(app_handle.clone()) {
+        let mut changed = false;
+
+        fn process_nodes(
+            nodes: &mut [AlbumItem],
+            renames: Option<&HashMap<String, String>>,
+            deletions: Option<&HashSet<String>>,
+            folder_rename: Option<(&str, &str)>,
+            changed: &mut bool,
+        ) {
+            for node in nodes.iter_mut() {
+                match node {
+                    AlbumItem::Album { images, .. } => {
+                        let mut new_images = Vec::new();
+
+                        for img in images.drain(..) {
+                            let mut current_img = img;
+
+                            if let Some((old_folder, new_folder)) = folder_rename {
+                                let img_path = Path::new(&current_img);
+                                let old_path = Path::new(old_folder);
+                                if let Ok(stripped) = img_path.strip_prefix(old_path) {
+                                    let new_img_path = Path::new(new_folder).join(stripped);
+                                    current_img = new_img_path.to_string_lossy().into_owned();
+                                    *changed = true;
+                                }
+                            }
+
+                            if let Some(r) = renames {
+                                if let Some(new_path) = r.get(&current_img) {
+                                    current_img = new_path.clone();
+                                    *changed = true;
+                                } else if let Some((base_path, vc_id)) =
+                                    current_img.rsplit_once("?vc=")
+                                    && let Some(new_base) = r.get(base_path)
+                                {
+                                    current_img = format!("{}?vc={}", new_base, vc_id);
+                                    *changed = true;
+                                }
+                            }
+
+                            let mut is_deleted = false;
+                            if let Some(d) = deletions {
+                                if d.contains(&current_img) {
+                                    is_deleted = true;
+                                } else {
+                                    let img_path = Path::new(&current_img);
+                                    for del_path_str in d {
+                                        let del_path = Path::new(del_path_str);
+                                        if img_path.starts_with(del_path) {
+                                            is_deleted = true;
+                                            break;
+                                        }
+
+                                        if let Some((base_path, _)) =
+                                            current_img.rsplit_once("?vc=")
+                                            && base_path == del_path_str
+                                        {
+                                            is_deleted = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if !is_deleted {
+                                new_images.push(current_img);
+                            } else {
+                                *changed = true;
+                            }
+                        }
+                        *images = new_images;
+                    }
+                    AlbumItem::Group { children, .. } => {
+                        process_nodes(children, renames, deletions, folder_rename, changed);
+                    }
+                }
+            }
+        }
+
+        process_nodes(&mut tree, renames, deletions, folder_rename, &mut changed);
+
+        if changed {
+            let _ = save_albums(tree, app_handle.clone());
+        }
+    }
+}
+
+#[tauri::command]
+pub fn get_album_images(
+    paths: Vec<String>,
+    app_handle: AppHandle,
+) -> Result<Vec<ImageFile>, String> {
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
+
+    let result_list: Vec<ImageFile> = paths
+        .into_par_iter()
+        .filter_map(|virtual_path| {
+            let (source_path, sidecar_path) = parse_virtual_path(&virtual_path);
+            if !source_path.exists() {
+                return None;
+            }
+
+            let modified = fs::metadata(&source_path)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+
+            let is_virtual_copy = virtual_path.contains("?vc=");
+
+            let (is_edited, tags, rating) = {
+                let mut metadata = if sidecar_path.exists() {
+                    if let Ok(content) = fs::read_to_string(&sidecar_path) {
+                        serde_json::from_str::<ImageMetadata>(&content).unwrap_or_default()
+                    } else {
+                        ImageMetadata::default()
+                    }
+                } else {
+                    ImageMetadata::default()
+                };
+
+                if enable_xmp_sync
+                    && sync_metadata_from_xmp(&source_path, &mut metadata)
+                    && let Ok(json) = serde_json::to_string_pretty(&metadata)
+                {
+                    let _ = fs::write(&sidecar_path, json);
+                }
+
+                let edited = metadata.adjustments.as_object().is_some_and(|a| {
+                    a.keys().len() > 1 || (a.keys().len() == 1 && !a.contains_key("rating"))
+                });
+                (edited, metadata.tags, metadata.rating)
+            };
+
+            Some(ImageFile {
+                path: virtual_path,
+                modified,
+                is_edited,
+                tags,
+                exif: None,
+                is_virtual_copy,
+                rating,
+            })
+        })
+        .collect();
+
+    Ok(result_list)
+}
+
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderNode {
@@ -1350,7 +1614,7 @@ pub fn create_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn rename_folder(path: String, new_name: String) -> Result<(), String> {
+pub fn rename_folder(path: String, new_name: String, app_handle: AppHandle) -> Result<(), String> {
     let p = Path::new(&path);
     if !p.is_dir() {
         return Err("Path is not a directory.".to_string());
@@ -1365,14 +1629,19 @@ pub fn rename_folder(path: String, new_name: String) -> Result<(), String> {
             }
         }
         let new_path = parent.join(&new_name);
-        fs::rename(p, new_path).map_err(|e| e.to_string())
+        fs::rename(p, &new_path).map_err(|e| e.to_string())?;
+
+        let new_folder_str = new_path.to_string_lossy().into_owned();
+        sync_album_path_changes(&app_handle, None, None, Some((&path, &new_folder_str)));
+
+        Ok(())
     } else {
         Err("Could not determine parent directory.".to_string())
     }
 }
 
 #[tauri::command]
-pub fn delete_folder(path: String) -> Result<(), String> {
+pub fn delete_folder(path: String, app_handle: AppHandle) -> Result<(), String> {
     #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
     {
         if let Err(trash_error) = trash::delete(&path) {
@@ -1380,20 +1649,28 @@ pub fn delete_folder(path: String) -> Result<(), String> {
                 "Failed to move folder to trash: {}. Falling back to permanent delete.",
                 trash_error
             );
-            fs::remove_dir_all(&path).map_err(|e| e.to_string())
-        } else {
-            Ok(())
+            fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
         }
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
-        fs::remove_dir_all(&path).map_err(|e| e.to_string())
+        fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
     }
+
+    let mut deletions = HashSet::new();
+    deletions.insert(path);
+    sync_album_path_changes(&app_handle, None, Some(&deletions), None);
+
+    Ok(())
 }
 
 #[tauri::command]
-pub fn duplicate_file(path: String) -> Result<(), String> {
+pub fn duplicate_file(
+    path: String,
+    target_album_id: Option<String>,
+    app_handle: AppHandle,
+) -> Result<String, String> {
     let (source_path, source_sidecar_path) = parse_virtual_path(&path);
     if !source_path.is_file() {
         return Err("Source path is not a file.".to_string());
@@ -1446,7 +1723,13 @@ pub fn duplicate_file(path: String) -> Result<(), String> {
         let _ = fs::copy(&source_rrexif, &dest_rrexif);
     }
 
-    Ok(())
+    let dest_path_str = dest_path.to_string_lossy().into_owned();
+
+    if let Some(album_id) = target_album_id {
+        let _ = add_to_album(album_id, vec![dest_path_str.clone()], app_handle);
+    }
+
+    Ok(dest_path_str)
 }
 
 fn find_all_associated_files(source_image_path: &Path) -> Result<Vec<PathBuf>, String> {
@@ -1560,7 +1843,11 @@ pub fn copy_files(source_paths: Vec<String>, destination_folder: String) -> Resu
 }
 
 #[tauri::command]
-pub fn move_files(source_paths: Vec<String>, destination_folder: String) -> Result<(), String> {
+pub fn move_files(
+    source_paths: Vec<String>,
+    destination_folder: String,
+    app_handle: AppHandle,
+) -> Result<(), String> {
     let dest_path = Path::new(&destination_folder);
     if !dest_path.is_dir() {
         return Err(format!(
@@ -1575,6 +1862,7 @@ pub fn move_files(source_paths: Vec<String>, destination_folder: String) -> Resu
         .collect();
 
     let mut all_files_to_trash = Vec::new();
+    let mut renames = HashMap::new();
 
     for source_image_path in unique_source_images {
         let source_parent = source_image_path
@@ -1604,6 +1892,13 @@ pub fn move_files(source_paths: Vec<String>, destination_folder: String) -> Resu
                 fs::copy(file_to_move, &dest_file_path).map_err(|e| e.to_string())?;
             }
         }
+
+        let dest_image_path = dest_path.join(source_image_path.file_name().unwrap());
+        renames.insert(
+            source_image_path.to_string_lossy().into_owned(),
+            dest_image_path.to_string_lossy().into_owned(),
+        );
+
         all_files_to_trash.extend(files_to_move);
     }
 
@@ -1631,6 +1926,8 @@ pub fn move_files(source_paths: Vec<String>, destination_folder: String) -> Resu
                 .map_err(|e| format!("Failed to delete source file {}: {}", path.display(), e))?;
         }
     }
+
+    sync_album_path_changes(&app_handle, Some(&renames), None, None);
 
     Ok(())
 }
@@ -2460,11 +2757,14 @@ pub fn show_in_finder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn delete_files_from_disk(paths: Vec<String>) -> Result<(), String> {
+pub fn delete_files_from_disk(paths: Vec<String>, app_handle: AppHandle) -> Result<(), String> {
     let mut files_to_trash = HashSet::new();
+
+    let mut deletions = HashSet::new();
 
     for path_str in paths {
         let (source_path, sidecar_path) = parse_virtual_path(&path_str);
+        deletions.insert(path_str.clone());
 
         if path_str.contains("?vc=") {
             if sidecar_path.exists() {
@@ -2523,19 +2823,26 @@ pub fn delete_files_from_disk(paths: Vec<String>) -> Result<(), String> {
         }
     }
 
+    sync_album_path_changes(&app_handle, None, Some(&deletions), None);
+
     Ok(())
 }
 
 #[tauri::command]
-pub fn delete_files_with_associated(paths: Vec<String>) -> Result<(), String> {
+pub fn delete_files_with_associated(
+    paths: Vec<String>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
     if paths.is_empty() {
         return Ok(());
     }
 
     let mut stems_to_delete = HashSet::new();
     let mut parent_dirs = HashSet::new();
+    let mut deletions = HashSet::new();
 
     for path_str in &paths {
+        deletions.insert(path_str.clone());
         let (source_path, _) = parse_virtual_path(path_str);
         if let Some(file_name) = source_path.file_name().and_then(|s| s.to_str())
             && let Some(stem) = file_name.split('.').next()
@@ -2602,6 +2909,8 @@ pub fn delete_files_with_associated(paths: Vec<String>) -> Result<(), String> {
                 .map_err(|e| format!("Failed to delete file {}: {}", path.display(), e))?;
         }
     }
+
+    sync_album_path_changes(&app_handle, None, Some(&deletions), None);
 
     Ok(())
 }
@@ -3082,13 +3391,18 @@ mod tests {
 }
 
 #[tauri::command]
-pub fn rename_files(paths: Vec<String>, name_template: String) -> Result<Vec<String>, String> {
+pub fn rename_files(
+    paths: Vec<String>,
+    name_template: String,
+    app_handle: AppHandle,
+) -> Result<Vec<String>, String> {
     if paths.is_empty() {
         return Ok(Vec::new());
     }
 
     let mut operations: HashMap<PathBuf, PathBuf> = HashMap::new();
     let mut final_new_paths = Vec::with_capacity(paths.len());
+    let mut renames = HashMap::new();
 
     for (i, path_str) in paths.iter().enumerate() {
         let (original_path, _) = parse_virtual_path(path_str);
@@ -3179,16 +3493,28 @@ pub fn rename_files(paths: Vec<String>, name_template: String) -> Result<Vec<Str
                 e
             )
         })?;
-        if is_supported_image_file(new_path.to_string_lossy().as_ref()) {
-            final_new_paths.push(new_path.to_string_lossy().into_owned());
+
+        let old_str = old_path.to_string_lossy().into_owned();
+        let new_str = new_path.to_string_lossy().into_owned();
+
+        renames.insert(old_str, new_str.clone());
+
+        if is_supported_image_file(&new_path) {
+            final_new_paths.push(new_str);
         }
     }
+
+    sync_album_path_changes(&app_handle, Some(&renames), None, None);
 
     Ok(final_new_paths)
 }
 
 #[tauri::command]
-pub fn create_virtual_copy(source_virtual_path: String) -> Result<String, String> {
+pub fn create_virtual_copy(
+    source_virtual_path: String,
+    target_album_id: Option<String>,
+    app_handle: AppHandle,
+) -> Result<String, String> {
     let (source_path, source_sidecar_path) = parse_virtual_path(&source_virtual_path);
 
     let new_copy_id = Uuid::new_v4().to_string()[..6].to_string();
@@ -3203,6 +3529,10 @@ pub fn create_virtual_copy(source_virtual_path: String) -> Result<String, String
         let json_string =
             serde_json::to_string_pretty(&default_metadata).map_err(|e| e.to_string())?;
         fs::write(new_sidecar_path, json_string).map_err(|e| e.to_string())?;
+    }
+
+    if let Some(album_id) = target_album_id {
+        let _ = add_to_album(album_id, vec![new_virtual_path.clone()], app_handle);
     }
 
     Ok(new_virtual_path)

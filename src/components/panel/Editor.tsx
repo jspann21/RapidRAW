@@ -989,14 +989,39 @@ export default function Editor({ onBackToLibrary, onContextMenu, transformWrappe
     isGeneratingOverlayRef.current = true;
     try {
       const cropOffset = [jsAdjustments.crop?.x || 0, jsAdjustments.crop?.y || 0];
+
+      const { patchesSentToBackend } = useEditorStore.getState();
+
+      const stripSubMasks = (subMasks: any[]) => {
+        if (!Array.isArray(subMasks)) return;
+        subMasks.forEach((sm) => {
+          if (sm.id && sm.parameters && patchesSentToBackend.has(sm.id)) {
+            if (sm.parameters.mask_data_base64 !== undefined) sm.parameters.mask_data_base64 = null;
+            if (sm.parameters.maskDataBase64 !== undefined) sm.parameters.maskDataBase64 = null;
+          }
+        });
+      };
+
+      const strippedAdjustments = structuredClone(jsAdjustments);
+      if (strippedAdjustments.masks) {
+        strippedAdjustments.masks.forEach((m: any) => stripSubMasks(m.subMasks));
+      }
+      if (strippedAdjustments.aiPatches) {
+        strippedAdjustments.aiPatches.forEach((p: any) => stripSubMasks(p.subMasks));
+      }
+
+      const strippedMaskDef = structuredClone(maskDef);
+      stripSubMasks(strippedMaskDef.subMasks);
+
       const dataUrl: string = await invoke(Invokes.GenerateMaskOverlay, {
         cropOffset,
         height: Math.round(renderSize.height),
-        maskDef,
+        maskDef: strippedMaskDef,
         scale: renderSize.scale,
         width: Math.round(renderSize.width),
-        jsAdjustments: jsAdjustments,
+        jsAdjustments: strippedAdjustments,
       });
+
       if (dataUrl) {
         setMaskOverlayUrl(dataUrl);
       } else {

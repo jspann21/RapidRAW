@@ -764,7 +764,7 @@ pub async fn export_image(
 #[tauri::command]
 pub async fn batch_export_images(
     output_folder: String,
-    base_origin_folder: Option<String>,
+    base_origin_folders: Vec<String>,
     paths: Vec<String>,
     export_settings: ExportSettings,
     output_format: String,
@@ -795,7 +795,6 @@ pub async fn batch_export_images(
     let task = tokio::spawn(async move {
         let state = app_handle.state::<AppState>();
         let output_folder_path = std::path::Path::new(&output_folder);
-        let base_origin_path = base_origin_folder.as_ref().map(std::path::Path::new);
         let total_paths = paths.len();
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
         let highlight_compression = settings.raw_highlight_compression.unwrap_or(2.5);
@@ -913,7 +912,12 @@ pub async fn batch_export_images(
 
                         let new_filename = format!("{}.{}", new_stem, output_format);
                         let output_path = if export_settings.preserve_folders {
-                            if let Some(base_origin) = base_origin_path {
+                            let matched_base = base_origin_folders
+                                .iter()
+                                .map(std::path::Path::new)
+                                .find(|b| source_path.starts_with(b));
+
+                            if let Some(base_origin) = matched_base {
                                 if let Ok(rel_path) = source_path.strip_prefix(base_origin) {
                                     let rel_dir = rel_path.parent().unwrap_or_else(|| std::path::Path::new(""));
                                     let rel_dir_is_safe = rel_dir.components().all(|component| {

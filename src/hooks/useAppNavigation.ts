@@ -45,11 +45,12 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
 
   const handleGoHome = useCallback(() => {
     useLibraryStore.getState().setLibrary({
-      rootPath: null,
+      rootPaths: [],
       currentFolderPath: null,
+      activeAlbumId: null,
       imageList: [],
       imageRatings: {},
-      folderTree: null,
+      folderTrees: [],
       multiSelectedPaths: [],
       libraryActivePath: null,
       expandedFolders: new Set(),
@@ -277,7 +278,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     async (path: string | null, isNewRoot = false, preloadedImages?: ImageFile[], expandParents = true) => {
       const { appSettings, handleSettingsChange } = useSettingsStore.getState();
       const { pinnedFolders } = appSettings || { pinnedFolders: [] };
-      const { setLibrary, sortCriteria } = useLibraryStore.getState();
+      const { setLibrary, sortCriteria, rootPaths, expandedFolders } = useLibraryStore.getState();
       const { setUI } = useUIStore.getState();
       const { setProcess } = useProcessStore.getState();
       useGooglePhotosStore.getState().setGooglePhotos({ isAlbumView: false });
@@ -286,70 +287,55 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
 
       await invoke('cancel_thumbnail_generation');
       clearThumbnailQueue();
-      setLibrary({ isViewLoading: true });
+      setLibrary({ isViewLoading: true, activeAlbumId: null });
       useLibraryStore.getState().setSearchCriteria({ tags: [], text: '', mode: 'OR' });
       setLibrary({ libraryScrollTop: 0 });
       setProcess({ thumbnails: {} });
       globalImageCache.clear();
 
       try {
-        setLibrary({ currentFolderPath: path });
         setUI({ activeView: 'library' });
 
-        if (isNewRoot) {
-          if (path) {
-            setLibrary({ rootPath: path, expandedFolders: new Set([path]) });
-          }
-        } else if (path && expandParents) {
-          setLibrary((state) => {
-            const newSet = new Set(state.expandedFolders);
-            const allRoots = [state.rootPath, ...(pinnedFolders || [])].filter(Boolean) as string[];
-            const relevantRoot = allRoots.find((r) => path.startsWith(r));
+        let newExpandedFolders = new Set(expandedFolders);
 
-            if (relevantRoot) {
-              const separator = path.includes('/') ? '/' : '\\';
-              const parentSeparatorIndex = path.lastIndexOf(separator);
-
-              if (parentSeparatorIndex > -1 && path.length > relevantRoot.length) {
-                let current = path.substring(0, parentSeparatorIndex);
-                while (current && current.length >= relevantRoot.length) {
-                  newSet.add(current);
-                  const nextParentIndex = current.lastIndexOf(separator);
-                  if (nextParentIndex === -1 || current === relevantRoot) break;
-                  current = current.substring(0, nextParentIndex);
-                }
-              }
-              newSet.add(relevantRoot);
-            }
-            return { expandedFolders: newSet };
-          });
-        }
-
-        if (isNewRoot) {
-          setLibrary({ isTreeLoading: true });
-          if (path) {
+        if (isNewRoot && path) {
+          newExpandedFolders = new Set([path]);
+          if (appSettings) {
             const recentFolders =
-              appSettings?.showRecentFolders === false
-                ? appSettings?.recentFolders || []
-                : nextRecentFolders(appSettings?.recentFolders || [], path, pinnedFolders || []);
+              appSettings.showRecentFolders === false
+                ? appSettings.recentFolders || []
+                : nextRecentFolders(appSettings.recentFolders || [], path, pinnedFolders || []);
             await handleSettingsChange({ ...appSettings, lastRootPath: path, recentFolders } as any);
           }
-          try {
-            const treeData = await invoke(Invokes.GetFolderTree, {
-              path,
-              expandedFolders: [path],
-              showImageCounts: appSettings?.enableFolderImageCounts ?? false,
-            });
-            setLibrary({ folderTree: treeData });
-          } catch (err) {
-            console.error('Failed to load folder tree:', err);
-            toast.error(`Failed to load folder tree: ${err}. Some sub-folders might be inaccessible.`);
-          } finally {
-            setLibrary({ isTreeLoading: false });
+        } else if (path && expandParents) {
+          const allRoots = [...(rootPaths || []), ...(pinnedFolders || [])].filter(Boolean) as string[];
+          const relevantRoot = allRoots.find((r) => path.startsWith(r));
+
+          if (relevantRoot) {
+            const separator = path.includes('/') ? '/' : '\\';
+            const parentSeparatorIndex = path.lastIndexOf(separator);
+
+            if (parentSeparatorIndex > -1 && path.length > relevantRoot.length) {
+              let current = path.substring(0, parentSeparatorIndex);
+              while (current && current.length >= relevantRoot.length) {
+                newExpandedFolders.add(current);
+                const nextParentIndex = current.lastIndexOf(separator);
+                if (nextParentIndex === -1 || current === relevantRoot) break;
+                current = current.substring(0, nextParentIndex);
+              }
+            }
+            newExpandedFolders.add(relevantRoot);
           }
         }
 
-        setLibrary({ imageList: [], multiSelectedPaths: [], libraryActivePath: null });
+        setLibrary({
+          currentFolderPath: path,
+          expandedFolders: newExpandedFolders,
+          imageList: [],
+          multiSelectedPaths: [],
+          libraryActivePath: null,
+        });
+
         if (selectedImage) {
           debouncedSave.flush();
           debouncedSetHistory.cancel();
@@ -415,7 +401,6 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       } catch (err) {
         console.error('Failed to load folder contents:', err);
         toast.error('Failed to load images from the selected folder.');
-        useLibraryStore.getState().setLibrary({ isTreeLoading: false });
       } finally {
         useLibraryStore.getState().setLibrary({ isViewLoading: false });
       }
@@ -471,21 +456,88 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     }
   }, [clearThumbnailQueue]);
 
+  const handleSelectAlbum = useCallback(
+    async (albumId: string, albumName: string, imagePaths: string[]) => {
+      const { setLibrary } = useLibraryStore.getState();
+      const { setUI } = useUIStore.getState();
+
+      await invoke('cancel_thumbnail_generation');
+      clearThumbnailQueue();
+      useLibraryStore.getState().setSearchCriteria({ tags: [], text: '', mode: 'OR' });
+
+      setLibrary({
+        isViewLoading: true,
+        libraryScrollTop: 0,
+        currentFolderPath: `Album: ${albumName}`,
+        activeAlbumId: albumId,
+      });
+      setUI({ activeView: 'library' });
+      globalImageCache.clear();
+
+      try {
+        const files: ImageFile[] = await invoke(Invokes.GetAlbumImages, { paths: imagePaths });
+
+        const initialRatings: Record<string, number> = {};
+        files.forEach((f) => {
+          if (f.rating !== undefined) initialRatings[f.path] = f.rating;
+        });
+
+        setLibrary({
+          imageList: files,
+          imageRatings: initialRatings,
+          multiSelectedPaths: [],
+          libraryActivePath: null,
+        });
+      } catch (err) {
+        console.error('Failed to load album images:', err);
+        toast.error(`Failed to load album: ${err}`);
+      } finally {
+        setLibrary({ isViewLoading: false });
+      }
+    },
+    [clearThumbnailQueue],
+  );
+
   const handleOpenFolder = async () => {
-    const { osPlatform } = useSettingsStore.getState();
+    const { osPlatform, appSettings, handleSettingsChange } = useSettingsStore.getState();
+    const { rootPaths, folderTrees, setLibrary } = useLibraryStore.getState();
     const isAndroid = osPlatform === 'android';
+
     try {
+      let selectedPath = '';
       if (isAndroid) {
-        const libraryRoot = await invoke<string>(Invokes.GetOrCreateInternalLibraryRoot);
-        useLibraryStore.getState().setLibrary({ rootPath: libraryRoot });
-        await handleSelectSubfolder(libraryRoot, true);
-        return;
+        selectedPath = await invoke<string>(Invokes.GetOrCreateInternalLibraryRoot);
+      } else {
+        const selected = await open({ directory: true, multiple: false, defaultPath: await homeDir() });
+        if (typeof selected === 'string') {
+          selectedPath = selected;
+        }
       }
 
-      const selected = await open({ directory: true, multiple: false, defaultPath: await homeDir() });
-      if (typeof selected === 'string') {
-        useLibraryStore.getState().setLibrary({ rootPath: selected });
-        await handleSelectSubfolder(selected, true);
+      if (selectedPath) {
+        if (!rootPaths.includes(selectedPath)) {
+          const newRootPaths = [...rootPaths, selectedPath];
+          setLibrary({ rootPaths: newRootPaths });
+
+          if (appSettings) {
+            handleSettingsChange({ ...appSettings, rootFolders: newRootPaths } as any);
+          }
+
+          setLibrary({ isTreeLoading: true });
+          try {
+            const newTree = await invoke(Invokes.GetFolderTree, {
+              path: selectedPath,
+              expandedFolders: [selectedPath],
+              showImageCounts: appSettings?.enableFolderImageCounts ?? false,
+            });
+            setLibrary({ folderTrees: [...folderTrees, newTree] });
+          } catch (e) {
+            toast.error(`Failed to load folder tree: ${e}`);
+          } finally {
+            setLibrary({ isTreeLoading: false });
+          }
+        }
+        await handleSelectSubfolder(selectedPath, true);
       }
     } catch (err) {
       console.error(isAndroid ? 'Failed to open Android library root:' : 'Failed to open directory dialog:', err);
@@ -498,49 +550,61 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       const { appSettings, handleSettingsChange } = useSettingsStore.getState();
       const { setLibrary } = useLibraryStore.getState();
 
-      if (!appSettings?.lastRootPath) return;
+      const rootFolders = appSettings?.rootFolders?.length
+        ? appSettings.rootFolders
+        : appSettings?.lastRootPath
+          ? [appSettings.lastRootPath]
+          : [];
 
-      const root = appSettings.lastRootPath;
-      const folderState = appSettings.lastFolderState;
-      const pathToSelect = folderState?.currentFolderPath || root;
-      if (appSettings.showRecentFolders !== false) {
+      if (rootFolders.length === 0) return;
+
+      if (appSettings && appSettings.showRecentFolders !== false) {
         await handleSettingsChange({
           ...appSettings,
-          recentFolders: nextRecentFolders(appSettings.recentFolders || [], root, appSettings.pinnedFolders || []),
-        });
+          recentFolders: nextRecentFolders(
+            appSettings.recentFolders || [],
+            rootFolders[0],
+            appSettings.pinnedFolders || [],
+          ),
+        } as any);
       }
 
-      setLibrary({ rootPath: root });
+      const folderState = appSettings?.lastFolderState;
+      const pathToSelect = folderState?.currentFolderPath || rootFolders[0];
+
+      setLibrary({ rootPaths: rootFolders });
 
       if (folderState?.expandedFolders) {
         const newExpandedFolders = new Set<string>(folderState.expandedFolders);
         setLibrary({ expandedFolders: newExpandedFolders });
       } else {
-        setLibrary({ expandedFolders: new Set([root]) });
+        setLibrary({ expandedFolders: new Set(rootFolders) });
       }
 
       setLibrary({ isTreeLoading: true });
       try {
-        let treeData;
-        if (preloadedDataRef.current.rootPath === root && preloadedDataRef.current.tree) {
-          treeData = await preloadedDataRef.current.tree;
+        let treesData;
+        if (preloadedDataRef.current?.rootPaths?.join() === rootFolders.join() && preloadedDataRef.current.trees) {
+          treesData = await preloadedDataRef.current.trees;
         } else {
-          const expandedArr = folderState?.expandedFolders ? Array.from(new Set(folderState.expandedFolders)) : [root];
-          treeData = await invoke(Invokes.GetFolderTree, {
-            path: root,
+          const expandedArr = folderState?.expandedFolders
+            ? Array.from(new Set(folderState.expandedFolders))
+            : rootFolders;
+          treesData = await invoke(Invokes.GetPinnedFolderTrees, {
+            paths: rootFolders,
             expandedFolders: expandedArr,
             showImageCounts: appSettings?.enableFolderImageCounts ?? false,
           });
         }
-        setLibrary({ folderTree: treeData });
+        setLibrary({ folderTrees: treesData });
       } catch (err) {
-        console.error('Failed to restore folder tree:', err);
+        console.error('Failed to restore folder trees:', err);
       } finally {
         setLibrary({ isTreeLoading: false });
       }
 
       let preloadedImages: ImageFile[] | undefined = undefined;
-      if (preloadedDataRef.current.currentPath === pathToSelect && preloadedDataRef.current.images) {
+      if (preloadedDataRef.current?.currentPath === pathToSelect && preloadedDataRef.current.images) {
         try {
           preloadedImages = await preloadedDataRef.current.images;
         } catch (e) {
@@ -548,16 +612,45 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         }
       }
 
-      await handleSelectSubfolder(pathToSelect, false, preloadedImages, false);
+      if (pathToSelect && pathToSelect.startsWith('Album: ')) {
+        const activeAlbumId = folderState?.activeAlbumId;
+        if (activeAlbumId) {
+          try {
+            const albumTree: any = await invoke(Invokes.GetAlbums);
+            setLibrary({ albumTree });
+
+            const findObj = (nodes: any[]): any => {
+              for (const n of nodes) {
+                if (n.id === activeAlbumId) return n;
+                if (n.type === 'group') {
+                  const f = findObj(n.children);
+                  if (f) return f;
+                }
+              }
+              return null;
+            };
+
+            const album = findObj(albumTree);
+            if (album) {
+              await handleSelectAlbum(album.id, album.name, album.images);
+            } else {
+              await handleSelectSubfolder(rootFolders[0], false, undefined, false);
+            }
+          } catch (e) {
+            console.error('Failed to restore album session:', e);
+            await handleSelectSubfolder(rootFolders[0], false, undefined, false);
+          }
+        } else {
+          await handleSelectSubfolder(rootFolders[0], false, undefined, false);
+        }
+      } else {
+        await handleSelectSubfolder(pathToSelect, false, preloadedImages, false);
+      }
     };
 
     restore().catch((err) => {
-      console.error('Failed to restore session, folder might be missing:', err);
-      toast.error('Failed to restore session. The last used folder may have been moved or deleted.');
-      const { appSettings, handleSettingsChange } = useSettingsStore.getState();
-      if (appSettings) {
-        handleSettingsChange({ ...appSettings, lastRootPath: null, lastFolderState: null });
-      }
+      console.error('Failed to restore session:', err);
+      toast.error('Failed to restore session. A folder may have been moved or deleted.');
       handleGoHome();
       useLibraryStore.getState().setLibrary({ isTreeLoading: false });
     });
@@ -569,6 +662,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     handleImageSelect,
     handleSelectSubfolder,
     handleSelectGooglePhotosAlbum,
+    handleSelectAlbum,
     handleOpenFolder,
     handleContinueSession,
   };

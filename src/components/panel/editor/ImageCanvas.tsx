@@ -88,6 +88,32 @@ interface MaskOverlay {
   subMask: SubMask;
 }
 
+const OptimizedBrushLine = memo(
+  ({ line, scale, cropX, cropY }: { line: DrawnLine; scale: number; cropX: number; cropY: number }) => {
+    const flattenedPoints = useMemo(() => {
+      const pts = new Float32Array(line.points.length * 2);
+      for (let i = 0; i < line.points.length; i++) {
+        pts[i * 2] = (line.points[i].x - cropX) * scale;
+        pts[i * 2 + 1] = (line.points[i].y - cropY) * scale;
+      }
+      return Array.from(pts);
+    }, [line.points, scale, cropX, cropY]);
+
+    return (
+      <Line
+        hitStrokeWidth={line.brushSize * scale}
+        lineCap="round"
+        lineJoin="round"
+        points={flattenedPoints}
+        stroke="transparent"
+        strokeScaleEnabled={false}
+        perfectDrawEnabled={false}
+        shadowForStrokeEnabled={false}
+      />
+    );
+  },
+);
+
 const MaskOverlay = memo(
   ({
     adjustments,
@@ -450,16 +476,7 @@ const MaskOverlay = memo(
           onTouchStart={handleMaskTouchStart}
         >
           {lines.map((line: DrawnLine, i: number) => (
-            <Line
-              hitStrokeWidth={line.brushSize * scale}
-              key={i}
-              lineCap="round"
-              lineJoin="round"
-              points={line.points.flatMap((p: Coord) => [(p.x - cropX) * scale, (p.y - cropY) * scale])}
-              stroke="transparent"
-              strokeScaleEnabled={false}
-              tension={0.5}
-            />
+            <OptimizedBrushLine key={i} line={line} scale={scale} cropX={cropX} cropY={cropY} />
           ))}
         </Group>
       );
@@ -846,6 +863,7 @@ const ImageCanvas = memo(
     const prevImageIdentityRef = useRef(selectedImage.thumbnailUrl);
 
     const [baseTool, setBaseTool] = useState<ToolType>(brushSettings?.tool ?? ToolType.Brush);
+    const [isAltPressed, setIsAltPressed] = useState(false);
     const retainedPatchRef = useRef<typeof interactivePatch>(null);
 
     const isWgpuActive = appSettings?.useWgpuRenderer !== false && selectedImage?.isReady && hasRenderedFirstFrame;
@@ -910,19 +928,29 @@ const ImageCanvas = memo(
         if (e.key === 'Alt') {
           e.preventDefault();
           (window as any).altKeyDown = true;
+          setIsAltPressed(true);
         }
       };
       const handleKeyUp = (e: KeyboardEvent) => {
         if (e.key === 'Alt') {
           e.preventDefault();
           (window as any).altKeyDown = false;
+          setIsAltPressed(false);
         }
       };
+      const handleBlur = () => {
+        (window as any).altKeyDown = false;
+        setIsAltPressed(false);
+      };
+
       window.addEventListener('keydown', handleKeyDown);
       window.addEventListener('keyup', handleKeyUp);
+      window.addEventListener('blur', handleBlur);
+
       return () => {
         window.removeEventListener('keydown', handleKeyDown);
         window.removeEventListener('keyup', handleKeyUp);
+        window.removeEventListener('blur', handleBlur);
         delete (window as any).altKeyDown;
       };
     }, []);
@@ -985,26 +1013,31 @@ const ImageCanvas = memo(
       const flowOpacity =
         activeSubMask?.type === Mask.Flow ? Math.max(0, Math.min(1, (activeSubMask.parameters?.flow ?? 10) / 100)) : 1;
       const alpha = Math.max(0, Math.min(0.5, 0.5 * subMaskOpacity * containerOpacity * flowOpacity));
-      const blue = (a: number) => `rgba(14, 165, 233, ${a.toFixed(3)})`;
+
+      const isEraser = isAltPressed ? baseTool !== ToolType.Eraser : baseTool === ToolType.Eraser;
+
+      const strokeColor = isEraser
+        ? (a: number) => `rgba(244, 63, 94, ${a.toFixed(3)})`
+        : (a: number) => `rgba(14, 165, 233, ${a.toFixed(3)})`;
 
       if (feather <= 0.001) {
         return {
-          fill: blue(alpha),
+          fill: strokeColor(alpha),
           radius,
         };
       }
 
       const innerStop = 1 - feather;
-      const colorStops: Array<number | string> = [0, blue(alpha)];
+      const colorStops: Array<number | string> = [0, strokeColor(alpha)];
 
       if (innerStop > 0.001) {
-        colorStops.push(innerStop, blue(alpha));
+        colorStops.push(innerStop, strokeColor(alpha));
       }
 
       for (const t of [0.25, 0.5, 0.75, 1]) {
         const smoothstep = t * t * (3 - 2 * t);
         const intensity = 1 - smoothstep;
-        colorStops.push(Math.min(1, innerStop + feather * t), blue(alpha * intensity));
+        colorStops.push(Math.min(1, innerStop + feather * t), strokeColor(alpha * intensity));
       }
 
       return {
@@ -1018,6 +1051,8 @@ const ImageCanvas = memo(
       activeSubMask?.type,
       brushSettings?.feather,
       brushStageSize,
+      baseTool,
+      isAltPressed,
     ]);
     const isAiSubjectActive =
       (isMasking || isAiEditing) &&
@@ -1493,6 +1528,16 @@ const ImageCanvas = memo(
         }
 
         if (currentLine.current) {
+          const lastPoint = currentLine.current.points[currentLine.current.points.length - 1];
+          if (lastPoint) {
+            const dx = pos.x - lastPoint.x;
+            const dy = pos.y - lastPoint.y;
+            if (dx * dx + dy * dy < 4) {
+              if (e.evt && e.evt.cancelable) e.evt.preventDefault();
+              return;
+            }
+          }
+
           const updatedLine = {
             ...currentLine.current,
             points: [...currentLine.current.points, pos],

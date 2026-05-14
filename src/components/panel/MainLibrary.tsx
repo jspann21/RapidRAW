@@ -71,7 +71,7 @@ interface MainLibraryProps {
   onThumbnailAspectRatioChange(aspectRatio: ThumbnailAspectRatio): void;
   onThumbnailSizeChange(size: ThumbnailSize): void;
   onRequestThumbnails?(paths: string[]): void;
-  rootPath: string | null;
+  rootPaths: string[];
   setLibraryViewMode(mode: LibraryViewMode): void;
   theme: string;
   thumbnailAspectRatio: ThumbnailAspectRatio;
@@ -191,11 +191,11 @@ export default function MainLibrary(props: MainLibraryProps) {
     checkVersion();
   }, []);
 
-  if (!props.rootPath) {
+  if (!props.rootPaths || props.rootPaths.length === 0) {
     if (!props.appSettings) {
       return null;
     }
-    const hasLastPath = !!props.appSettings.lastRootPath;
+    const hasLastPath = !!props.appSettings.lastRootPath || !!props.appSettings.rootFolders?.length;
     const savedFolders = props.appSettings.pinnedFolders || [];
     const currentThemeId = props.theme || DEFAULT_THEME_ID;
     const selectedTheme: ThemeProps | undefined =
@@ -239,7 +239,7 @@ export default function MainLibrary(props: MainLibraryProps) {
                   onBack={() => setShowSettings(false)}
                   onLibraryRefresh={props.onLibraryRefresh}
                   onSettingsChange={props.onSettingsChange}
-                  rootPath={props.rootPath}
+                  rootPaths={props.rootPaths}
                 />
               ) : (
                 <>
@@ -282,7 +282,7 @@ export default function MainLibrary(props: MainLibraryProps) {
                           size="lg"
                         >
                           <Folder size={20} className="mr-2" />
-                          {props.isAndroid ? 'Open Library' : hasLastPath ? 'Change Folder' : 'Open Folder'}
+                          {props.isAndroid ? 'Open Library' : hasLastPath ? 'Add Folder' : 'Open Folder'}
                         </Button>
                         <Button
                           className="px-3 bg-surface text-text-primary shadow-md h-11"
@@ -477,13 +477,6 @@ export default function MainLibrary(props: MainLibraryProps) {
                 data-tooltip="Community Presets"
               >
                 <Users className="w-8 h-8" />
-              </Button>
-              <Button
-                className="h-12 w-12 bg-surface text-text-primary shadow-none p-0 flex items-center justify-center"
-                onClick={props.onOpenFolder}
-                data-tooltip="Open another folder"
-              >
-                <Folder className="w-8 h-8" />
               </Button>
             </>
           )}

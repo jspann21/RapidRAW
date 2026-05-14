@@ -37,7 +37,7 @@ interface ExportPanelProps {
   setExportState(state: any): void;
   appSettings: AppSettings | null;
   onSettingsChange: (settings: AppSettings) => void;
-  rootPath: string | null;
+  rootPaths: string[];
 }
 
 interface SectionProps {
@@ -177,7 +177,7 @@ export default function ExportPanel({
   setExportState,
   appSettings,
   onSettingsChange,
-  rootPath,
+  rootPaths,
 }: ExportPanelProps) {
   const {
     fileFormat,
@@ -463,7 +463,7 @@ export default function ExportPanel({
             outputFolder: outputFolder as string,
             outputFormat: FILE_FORMATS.find((f: FileFormat) => f.id === fileFormat)?.extensions[0],
             paths: pathsToExport,
-            baseOriginFolder: rootPath,
+            baseOriginFolders: rootPaths,
           });
         }
       } else {

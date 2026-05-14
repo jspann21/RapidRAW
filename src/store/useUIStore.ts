@@ -98,6 +98,12 @@ interface UIState {
   importSourcePaths: Array<string>;
   folderActionTarget: string | null;
 
+  // Album Modals
+  isCreateAlbumModalOpen: boolean;
+  isCreateAlbumGroupModalOpen: boolean;
+  isRenameAlbumModalOpen: boolean;
+  albumActionTarget: string | null;
+
   // Complex Modal States
   confirmModalState: ConfirmModalState;
   panoramaModalState: PanoramaModalState;
@@ -142,6 +148,11 @@ export const useUIStore = create<UIState>((set, get) => ({
   importTargetFolder: null,
   importSourcePaths: [],
   folderActionTarget: null,
+
+  isCreateAlbumModalOpen: false,
+  isCreateAlbumGroupModalOpen: false,
+  isRenameAlbumModalOpen: false,
+  albumActionTarget: null,
 
   confirmModalState: { isOpen: false },
   panoramaModalState: {

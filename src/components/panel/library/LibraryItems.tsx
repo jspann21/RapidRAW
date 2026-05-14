@@ -432,7 +432,7 @@ const RowComponent = ({
   thumbnailAspectRatio,
   loadedThumbnails,
   imageRatings,
-  rootPath,
+  baseFolderPath,
   itemWidth,
   itemHeight,
   outerPadding,
@@ -463,8 +463,8 @@ const RowComponent = ({
 
   if (row.type === 'header') {
     let displayPath = row.path;
-    if (rootPath && row.path.startsWith(rootPath)) {
-      displayPath = row.path.substring(rootPath.length);
+    if (baseFolderPath && row.path.startsWith(baseFolderPath)) {
+      displayPath = row.path.substring(baseFolderPath.length);
       if (displayPath.startsWith('/') || displayPath.startsWith('\\')) {
         displayPath = displayPath.substring(1);
       }

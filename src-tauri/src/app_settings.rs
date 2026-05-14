@@ -37,8 +37,14 @@ impl Default for FilterCriteria {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct LastFolderState {
-    pub current_folder_path: String,
+    #[serde(default)]
+    pub current_folder_path: Option<String>,
+    #[serde(default)]
     pub expanded_folders: Vec<String>,
+    #[serde(default)]
+    pub active_album_id: Option<String>,
+    #[serde(default)]
+    pub expanded_album_groups: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -305,10 +311,16 @@ pub fn default_adjustment_visibility() -> HashMap<String, bool> {
     map
 }
 
+pub fn default_open_tree_sections() -> Vec<String> {
+    vec!["current".to_string()]
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub last_root_path: Option<String>,
+    #[serde(default)]
+    pub root_folders: Vec<String>,
     #[serde(default)]
     pub pinned_folders: Vec<String>,
     #[serde(default)]
@@ -358,8 +370,8 @@ pub struct AppSettings {
     #[serde(default = "default_adjustment_visibility")]
     pub adjustment_visibility: HashMap<String, bool>,
     pub enable_exif_reading: Option<bool>,
-    #[serde(default)]
-    pub active_tree_section: Option<String>,
+    #[serde(default = "default_open_tree_sections")]
+    pub open_tree_sections: Vec<String>,
     #[serde(default)]
     pub copy_paste_settings: CopyPasteSettings,
     #[serde(default)]
@@ -424,6 +436,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             last_root_path: None,
+            root_folders: Vec::new(),
             pinned_folders: Vec::new(),
             recent_folders: Vec::new(),
             show_recent_folders: Some(true),
@@ -460,7 +473,7 @@ impl Default for AppSettings {
             local_ai_generation_settings: LocalAiGenerationSettings::default(),
             adjustment_visibility: default_adjustment_visibility(),
             enable_exif_reading: Some(false),
-            active_tree_section: Some("current".to_string()),
+            open_tree_sections: default_open_tree_sections(),
             copy_paste_settings: CopyPasteSettings::default(),
             raw_highlight_compression: Some(2.5),
             processing_backend: Some("auto".to_string()),
@@ -537,6 +550,13 @@ pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     let all_current_keys = all_available_adjustments();
     let default_included = default_included_adjustments();
     let mut settings_modified = false;
+
+    if settings.root_folders.is_empty()
+        && let Some(last) = &settings.last_root_path
+    {
+        settings.root_folders.push(last.clone());
+        settings_modified = true;
+    }
 
     let is_first_migration = settings.copy_paste_settings.known_adjustments.is_empty();
 
