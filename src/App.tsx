@@ -318,7 +318,6 @@ function App() {
     handleImageClick,
     handleSetColorLabel,
     refreshAllFolderTrees,
-    handleTogglePinFolder,
     handleRemoveRecentFolder,
     handleCreateAlbumItem,
     handleRenameAlbumItem,
@@ -510,7 +509,6 @@ function App() {
     refreshAllFolderTrees,
     refreshImageList: handleLibraryRefresh,
     executeDelete,
-    handleTogglePinFolder,
     handleRemoveRecentFolder,
   });
 
@@ -723,9 +721,6 @@ function App() {
         setLibrary((state) => ({
           folderTrees: state.folderTrees.map((t: any) => insertChildrenIntoTree(t, path, newChildren)),
         }));
-        setLibrary((state) => ({
-          pinnedFolderTrees: state.pinnedFolderTrees.map((tree) => insertChildrenIntoTree(tree, path, newChildren)),
-        }));
       } catch (err) {
         toast.error(`Failed to load folder: ${err}`);
       }
@@ -734,6 +729,33 @@ function App() {
   );
 
   const hasRoots = rootPaths && rootPaths.length > 0;
+
+  const handleOpenListedFolder = useCallback(
+    async (path: string) => {
+      const { rootPaths: currentRoots, folderTrees, setLibrary } = useLibraryStore.getState();
+      if (!currentRoots.includes(path)) {
+        const nextRoots = [...currentRoots, path];
+        setLibrary({ rootPaths: nextRoots, isTreeLoading: true });
+        if (appSettings) {
+          await handleSettingsChange({ ...appSettings, rootFolders: nextRoots } as any);
+        }
+        try {
+          const newTree = await invoke(Invokes.GetFolderTree, {
+            path,
+            expandedFolders: [path],
+            showImageCounts: appSettings?.enableFolderImageCounts ?? false,
+          });
+          setLibrary({ folderTrees: [...folderTrees, newTree] });
+        } catch (err) {
+          toast.error(`Failed to load folder tree: ${err}`);
+        } finally {
+          setLibrary({ isTreeLoading: false });
+        }
+      }
+      await handleSelectSubfolder(path, true);
+    },
+    [appSettings, handleSettingsChange, handleSelectSubfolder],
+  );
 
   const renderFolderTree = () => {
     if (!hasRoots) return null;
@@ -853,7 +875,7 @@ function App() {
                   handleContinueSession={handleContinueSession}
                   handleGoHome={handleGoHome}
                   handleOpenFolder={handleOpenFolder}
-                  handleOpenSavedFolder={(path) => handleSelectSubfolder(path, true)}
+                  handleOpenListedFolder={handleOpenListedFolder}
                   handleImportClick={handleImportClick}
                   handleLibraryRefresh={handleLibraryRefresh}
                   handleCopyAdjustments={handleCopyAdjustments}

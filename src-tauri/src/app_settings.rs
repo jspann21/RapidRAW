@@ -558,6 +558,24 @@ pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
         settings_modified = true;
     }
 
+    if !settings.pinned_folders.is_empty() {
+        for pinned in &settings.pinned_folders {
+            if !settings.root_folders.iter().any(|root| root == pinned) {
+                settings.root_folders.push(pinned.clone());
+            }
+        }
+        settings.pinned_folders.clear();
+        settings_modified = true;
+    }
+
+    if settings.open_tree_sections.iter().any(|section| section == "pinned") {
+        settings.open_tree_sections.retain(|section| section != "pinned");
+        if settings.open_tree_sections.is_empty() {
+            settings.open_tree_sections = default_open_tree_sections();
+        }
+        settings_modified = true;
+    }
+
     let is_first_migration = settings.copy_paste_settings.known_adjustments.is_empty();
 
     if is_first_migration {

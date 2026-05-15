@@ -30,7 +30,7 @@ interface LibraryViewProps {
   handleContinueSession: (...args: any) => void;
   handleGoHome: (...args: any) => void;
   handleOpenFolder: (...args: any) => void;
-  handleOpenSavedFolder: (path: string) => void;
+  handleOpenListedFolder: (path: string) => void;
   handleImportClick: (path: string) => void;
   handleLibraryRefresh: () => Promise<void>;
   handleCopyAdjustments: () => void;
@@ -57,7 +57,7 @@ export default function LibraryView({
   handleContinueSession,
   handleGoHome,
   handleOpenFolder,
-  handleOpenSavedFolder,
+  handleOpenListedFolder,
   handleImportClick,
   handleLibraryRefresh,
   handleCopyAdjustments,
@@ -147,7 +147,7 @@ export default function LibraryView({
             onContinueSession={handleContinueSession}
             onEmptyAreaContextMenu={handleMainLibraryContextMenu}
             onGoHome={handleGoHome}
-            onOpenSavedFolder={handleOpenSavedFolder}
+            onOpenListedFolder={handleOpenListedFolder}
             onImageClick={handleLibraryImageSingleClick}
             onImageDoubleClick={handleImageSelect}
             onImportClick={() => handleImportClick(currentFolderPath as string)}

@@ -2308,7 +2308,7 @@ pub fn run() {
             file_management::list_images_recursive,
             file_management::get_folder_tree,
             file_management::get_folder_children,
-            file_management::get_pinned_folder_trees,
+            file_management::get_folder_trees,
             file_management::update_thumbnail_queue,
             file_management::create_folder,
             file_management::delete_folder,

@@ -45,18 +45,18 @@ export const dedupeFolderPaths = (paths: string[]) => {
   return result;
 };
 
-export const nextRecentFolders = (recentFolders: string[] = [], openedPath: string, pinnedFolders: string[] = []) => {
-  const pinnedSet = new Set(pinnedFolders.map(normalizeFolderPath));
+export const nextRecentFolders = (recentFolders: string[] = [], openedPath: string, excludedFolders: string[] = []) => {
+  const excludedSet = new Set(excludedFolders.map(normalizeFolderPath));
   const normalizedOpenedPath = normalizeFolderPath(openedPath);
 
-  if (!openedPath || pinnedSet.has(normalizedOpenedPath)) {
-    return recentFolders.filter((path) => !pinnedSet.has(normalizeFolderPath(path))).slice(0, MAX_RECENT_FOLDERS);
+  if (!openedPath || excludedSet.has(normalizedOpenedPath)) {
+    return recentFolders.filter((path) => !excludedSet.has(normalizeFolderPath(path))).slice(0, MAX_RECENT_FOLDERS);
   }
 
   return dedupeFolderPaths([
     openedPath,
     ...recentFolders.filter(
-      (path) => normalizeFolderPath(path) !== normalizedOpenedPath && !pinnedSet.has(normalizeFolderPath(path)),
+      (path) => normalizeFolderPath(path) !== normalizedOpenedPath && !excludedSet.has(normalizeFolderPath(path)),
     ),
   ]).slice(0, MAX_RECENT_FOLDERS);
 };

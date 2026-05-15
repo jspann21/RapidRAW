@@ -27,8 +27,6 @@ import {
   Trash2,
   Undo,
   X,
-  Pin,
-  PinOff,
   Users,
   Gauge,
   Grip,
@@ -95,7 +93,6 @@ export interface UseAppContextMenusProps {
   refreshAllFolderTrees: () => Promise<void>;
   refreshImageList: () => Promise<void>;
   executeDelete: (paths: string[], options: any) => Promise<void>;
-  handleTogglePinFolder: (path: string) => Promise<void>;
   handleRemoveRecentFolder: (path: string) => Promise<void>;
 }
 
@@ -937,7 +934,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
   );
 
   const handleFolderTreeContextMenu = useCallback(
-    (event: any, path: string, isCurrentlyPinned?: boolean, isRecent?: boolean) => {
+    (event: any, path: string, _isRootContext?: boolean, isRecent?: boolean) => {
       event.preventDefault();
       event.stopPropagation();
 
@@ -953,13 +950,8 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       const copyPastedLabel = numCopied === 1 ? 'Copy image here' : `Copy ${numCopied} images here`;
       const movePastedLabel = numCopied === 1 ? 'Move image here' : `Move ${numCopied} images here`;
 
-      const pinOption = isCurrentlyPinned
-        ? { icon: PinOff, label: 'Remove Saved Folder', onClick: () => props.handleTogglePinFolder(targetPath) }
-        : { icon: Pin, label: 'Save Folder', onClick: () => props.handleTogglePinFolder(targetPath) };
-
       if (isRecent) {
         const recentOptions = [
-          pinOption,
           {
             icon: X,
             label: 'Remove from Recent',
@@ -1032,8 +1024,6 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               { type: OPTION_SEPARATOR },
             ]
           : []),
-        pinOption,
-        { type: OPTION_SEPARATOR },
         {
           icon: FolderPlus,
           label: 'New Folder',

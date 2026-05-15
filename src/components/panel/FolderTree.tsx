@@ -47,7 +47,7 @@ export interface FolderTree {
 interface FolderTreeProps {
   isResizing: boolean;
   isVisible: boolean;
-  onContextMenu(event: any, path: string | null, isPinned?: boolean, isRecent?: boolean): void;
+  onContextMenu(event: any, path: string | null, isRoot?: boolean, isRecent?: boolean): void;
   onAlbumContextMenu(event: any, item: AlbumItem | null): void;
   onFolderSelect(folder: string, options?: { asSessionRoot?: boolean }): void;
   onGooglePhotosSelect(): void;
@@ -64,11 +64,10 @@ interface TreeNodeProps {
   expandedFolders: Set<string>;
   isExpanded: boolean;
   node: FolderTree;
-  onContextMenu(event: any, path: string, isPinned?: boolean): void;
+  onContextMenu(event: any, path: string): void;
   onFolderSelect(folder: string, options?: { asSessionRoot?: boolean }): void;
   onToggle(path: string): void;
   selectedPath: string | null;
-  pinnedFolders: string[];
   selectAsSessionRoot: boolean;
   showImageCounts: boolean;
   isInstantTransition: boolean;
@@ -152,7 +151,7 @@ function RecentFolderRow({
 }: {
   path: string;
   isSelected: boolean;
-  onContextMenu(event: any, path: string, isPinned?: boolean, isRecent?: boolean): void;
+  onContextMenu(event: any, path: string, isRoot?: boolean, isRecent?: boolean): void;
   onFolderSelect(folder: string, options?: { asSessionRoot?: boolean }): void;
   onRemove(folder: string): void;
 }) {
@@ -287,7 +286,6 @@ function TreeNode({
   onFolderSelect,
   onToggle,
   selectedPath,
-  pinnedFolders,
   selectAsSessionRoot,
   showImageCounts,
   isInstantTransition,
@@ -296,7 +294,6 @@ function TreeNode({
 }: TreeNodeProps) {
   const hasChildren = node.hasSubdirs || (node.children && node.children.length > 0);
   const isSelected = node.path === selectedPath;
-  const isPinned = pinnedFolders.includes(node.path);
   const isDropTarget = dragTargetFolderPath === node.path;
   const expandOnHoverTimer = useRef<number | null>(null);
 
@@ -370,7 +367,7 @@ function TreeNode({
           'hover:bg-card-active': !isSelected,
         })}
         onClick={handleNameClick}
-        onContextMenu={(e: any) => onContextMenu(e, node.path, isPinned)}
+        onContextMenu={(e: any) => onContextMenu(e, node.path)}
         data-folder-path={node.path}
       >
         <div
@@ -442,7 +439,6 @@ function TreeNode({
                       onFolderSelect={onFolderSelect}
                       onToggle={onToggle}
                       selectedPath={selectedPath}
-                      pinnedFolders={pinnedFolders}
                       selectAsSessionRoot={selectAsSessionRoot}
                       showImageCounts={showImageCounts}
                       isInstantTransition={isInstantTransition}
@@ -478,8 +474,8 @@ export default function FolderTree({
   const { appSettings, handleSettingsChange } = useSettingsStore();
   const {
     folderTrees,
-    pinnedFolderTrees,
     currentFolderPath: selectedPath,
+    rootPaths,
     expandedFolders,
     isTreeLoading: isLoading,
     draggedImagePaths,
@@ -491,7 +487,6 @@ export default function FolderTree({
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isHovering, setIsHovering] = useState(false);
-  const pinnedFolders = appSettings?.pinnedFolders || [];
   const showRecentFolders = appSettings?.showRecentFolders ?? true;
   const googlePhotosEnabled = appSettings?.googlePhotosIntegrationEnabled ?? false;
   const googlePhotosAlbumTitle = appSettings?.googlePhotosAlbumTitle || 'RapidRaw';
@@ -534,34 +529,26 @@ export default function FolderTree({
     return folderTrees.map((tree: any) => filterTree(tree, trimmedQuery)).filter((t: any) => t !== null);
   }, [folderTrees, trimmedQuery, isSearching]);
 
-  const filteredPinnedTrees = useMemo(() => {
-    if (!isSearching) return pinnedFolderTrees;
-    return pinnedFolderTrees
-      .map((pinnedTree) => filterTree(pinnedTree, trimmedQuery))
-      .filter((t): t is FolderTree => t !== null);
-  }, [pinnedFolderTrees, trimmedQuery, isSearching]);
-
   const visibleRecentFolders = useMemo(() => {
     if (!showRecentFolders) return [];
-    const pinnedSet = new Set(pinnedFolders.map(normalizeFolderPath));
+    const rootSet = new Set(rootPaths.map(normalizeFolderPath));
     const seen = new Set<string>();
     return (appSettings?.recentFolders || []).filter((path: string) => {
       const normalized = normalizeFolderPath(path);
-      if (!path || seen.has(normalized) || pinnedSet.has(normalized)) {
+      if (!path || seen.has(normalized) || rootSet.has(normalized)) {
         return false;
       }
       seen.add(normalized);
       return !isSearching || getFolderDisplayName(path).toLowerCase().includes(trimmedQuery.toLowerCase()) || path.toLowerCase().includes(trimmedQuery.toLowerCase());
     });
-  }, [appSettings?.recentFolders, isSearching, pinnedFolders, showRecentFolders, trimmedQuery]);
+  }, [appSettings?.recentFolders, isSearching, rootPaths, showRecentFolders, trimmedQuery]);
 
   const searchAutoExpandedFolders = useMemo(() => {
     if (!isSearching) return new Set<string>();
     const newExpanded = new Set<string>();
     filteredTrees.forEach((t: any) => getAutoExpandedPaths(t, newExpanded));
-    filteredPinnedTrees.forEach((pinned) => getAutoExpandedPaths(pinned, newExpanded));
     return newExpanded;
-  }, [isSearching, filteredTrees, filteredPinnedTrees]);
+  }, [isSearching, filteredTrees]);
 
   const effectiveExpandedFolders = useMemo(() => {
     return new Set([...expandedFolders, ...searchAutoExpandedFolders]);
@@ -569,16 +556,11 @@ export default function FolderTree({
 
   useEffect(() => {
     if (isSearching && appSettings) {
-      const hasPinnedResults = filteredPinnedTrees && filteredPinnedTrees.length > 0;
       const hasBaseResults = filteredTrees && filteredTrees.length > 0;
 
       let newSections = [...openSections];
       let changed = false;
 
-      if (hasPinnedResults && !newSections.includes('pinned')) {
-        newSections.push('pinned');
-        changed = true;
-      }
       if (hasBaseResults && !newSections.includes('current')) {
         newSections.push('current');
         changed = true;
@@ -588,13 +570,11 @@ export default function FolderTree({
         handleSettingsChange({ ...appSettings, openTreeSections: newSections });
       }
     }
-  }, [isSearching, filteredTrees, filteredPinnedTrees, openSections, handleSettingsChange, appSettings]);
+  }, [isSearching, filteredTrees, openSections, handleSettingsChange, appSettings]);
 
-  const isPinnedOpen = openSections.includes('pinned');
   const isCurrentOpen = openSections.includes('current');
   const isAlbumsOpen = openSections.includes('albums');
 
-  const hasVisiblePinnedTrees = filteredPinnedTrees && filteredPinnedTrees.length > 0;
   const hasVisibleRecentFolders = visibleRecentFolders.length > 0;
   const hasActiveImageDrag = draggedImagePaths.length > 0;
 
@@ -661,90 +641,6 @@ export default function FolderTree({
           </div>
 
           <div className="flex-1 overflow-y-auto" onContextMenu={handleEmptyAreaContextMenu}>
-            {hasVisiblePinnedTrees && (
-              <>
-                <div>
-                  <SectionHeader title="Pinned" isOpen={isPinnedOpen} onToggle={() => toggleSection('pinned')} />
-                </div>
-                <AnimatePresence initial={false}>
-                  {isPinnedOpen && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2, ease: 'easeInOut' }}
-                      className="overflow-hidden"
-                    >
-                      <div className="pt-1 pb-2">
-                        <AnimatePresence>
-                          {filteredPinnedTrees.map((pinnedTree, index) => (
-                            <motion.div
-                              key={pinnedTree.path}
-                              animate="visible"
-                              custom={{ index, total: filteredPinnedTrees.length }}
-                              exit="exit"
-                              initial={isInstantTransition ? 'visible' : 'hidden'}
-                              layout={isInstantTransition ? false : 'position'}
-                              variants={{
-                                hidden: { opacity: 0, x: -15 },
-                                visible: ({ index, total }: VisibleProps) => ({
-                                  opacity: 1,
-                                  x: 0,
-                                  transition: { duration: 0.25, delay: total < 8 ? index * 0.05 : 0 },
-                                }),
-                                exit: { opacity: 0, x: -15, transition: { duration: 0.2 } },
-                              }}
-                            >
-                              <TreeNode
-                                expandedFolders={effectiveExpandedFolders}
-                                isExpanded={effectiveExpandedFolders.has(pinnedTree.path)}
-                                node={pinnedTree}
-                                onContextMenu={onContextMenu}
-                                onFolderSelect={onFolderSelect}
-                                onToggle={onToggleFolder}
-                                selectedPath={selectedPath}
-                                pinnedFolders={pinnedFolders}
-                                selectAsSessionRoot={true}
-                                showImageCounts={showImageCounts && isHovering}
-                                isInstantTransition={isInstantTransition}
-                                dragTargetFolderPath={dragTargetFolderPath}
-                                hasActiveImageDrag={hasActiveImageDrag}
-                              />
-                            </motion.div>
-                          ))}
-                        </AnimatePresence>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </>
-            )}
-
-            {hasVisibleRecentFolders && (
-              <div className="pb-2">
-                <Text
-                  as="div"
-                  variant={TextVariants.small}
-                  weight={TextWeights.bold}
-                  className="w-full px-2 py-1.5 uppercase tracking-wider select-none text-text-secondary"
-                >
-                  Recent
-                </Text>
-                <div className="space-y-0.5">
-                  {visibleRecentFolders.map((recentFolder) => (
-                    <RecentFolderRow
-                      key={recentFolder}
-                      path={recentFolder}
-                      isSelected={isSameFolderPath(recentFolder, selectedPath)}
-                      onContextMenu={onContextMenu}
-                      onFolderSelect={onFolderSelect}
-                      onRemove={onRecentFolderRemove}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
             {!isSearching && (
               <>
                 <div>
@@ -841,7 +737,6 @@ export default function FolderTree({
                                 onFolderSelect={onFolderSelect}
                                 onToggle={onToggleFolder}
                                 selectedPath={selectedPath}
-                                pinnedFolders={pinnedFolders}
                                 selectAsSessionRoot={false}
                                 showImageCounts={showImageCounts && isHovering}
                                 isInstantTransition={isInstantTransition}
@@ -885,17 +780,42 @@ export default function FolderTree({
               </>
             )}
 
-            {!filteredTrees?.length && !hasVisiblePinnedTrees && !hasVisibleRecentFolders && isSearching && (
+            {!filteredTrees?.length && !hasVisibleRecentFolders && isSearching && (
               <Text className="p-2 text-center">No folders found.</Text>
             )}
 
-            {folderTrees.length === 0 && pinnedFolderTrees.length === 0 && !hasVisibleRecentFolders && !isSearching && (
+            {folderTrees.length === 0 && !hasVisibleRecentFolders && !isSearching && (
               <div className="pt-1">
                 {isLoading ? (
                   <Text className="animate-pulse p-2">Loading folders...</Text>
                 ) : (
                   <Text className="p-2">Open a folder to see its structure.</Text>
                 )}
+              </div>
+            )}
+
+            {hasVisibleRecentFolders && (
+              <div className="pt-2 pb-2">
+                <Text
+                  as="div"
+                  variant={TextVariants.small}
+                  weight={TextWeights.bold}
+                  className="w-full px-2 py-1.5 uppercase tracking-wider select-none text-text-secondary"
+                >
+                  Recent
+                </Text>
+                <div className="space-y-0.5">
+                  {visibleRecentFolders.map((recentFolder) => (
+                    <RecentFolderRow
+                      key={recentFolder}
+                      path={recentFolder}
+                      isSelected={isSameFolderPath(recentFolder, selectedPath)}
+                      onContextMenu={onContextMenu}
+                      onFolderSelect={onFolderSelect}
+                      onRemove={onRecentFolderRemove}
+                    />
+                  ))}
+                </div>
               </div>
             )}
           </div>

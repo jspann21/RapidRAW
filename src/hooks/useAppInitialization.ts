@@ -154,19 +154,6 @@ export const useAppInitialization = ({
             .catch((err) => console.error('Failed to load Google Photos sync index:', err));
         }
 
-        if (settings?.pinnedFolders && settings.pinnedFolders.length > 0) {
-          try {
-            const trees = await invoke(Invokes.GetPinnedFolderTrees, {
-              paths: settings.pinnedFolders,
-              expandedFolders: settings.lastFolderState?.expandedFolders || [],
-              showImageCounts: settings.enableFolderImageCounts ?? false,
-            });
-            setLibrary({ pinnedFolderTrees: trees });
-          } catch (err) {
-            console.error('Failed to load pinned folder trees:', err);
-          }
-        }
-
         const rootFolders = settings.rootFolders?.length
           ? settings.rootFolders
           : settings.lastRootPath
@@ -184,7 +171,7 @@ export const useAppInitialization = ({
           preloadedDataRef.current = {
             rootPaths: rootFolders,
             currentPath: currentPath,
-            trees: invoke(Invokes.GetPinnedFolderTrees, {
+            trees: invoke(Invokes.GetFolderTrees, {
               paths: rootFolders,
               expandedFolders: settings.lastFolderState?.expandedFolders ?? rootFolders,
               showImageCounts: settings.enableFolderImageCounts ?? false,

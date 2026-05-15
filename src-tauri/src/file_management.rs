@@ -1003,7 +1003,7 @@ pub async fn get_folder_tree(
 }
 
 #[tauri::command]
-pub async fn get_pinned_folder_trees(
+pub async fn get_folder_trees(
     paths: Vec<String>,
     expanded_folders: Vec<String>,
     show_image_counts: bool,
@@ -1020,7 +1020,7 @@ pub async fn get_pinned_folder_trees(
         for result in results {
             match result {
                 Ok(node) => folder_nodes.push(node),
-                Err(e) => log::warn!("Failed to get tree for pinned folder: {}", e),
+                Err(e) => log::warn!("Failed to get folder tree: {}", e),
             }
         }
         folder_nodes

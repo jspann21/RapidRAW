@@ -277,7 +277,6 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
   const handleSelectSubfolder = useCallback(
     async (path: string | null, isNewRoot = false, preloadedImages?: ImageFile[], expandParents = true) => {
       const { appSettings, handleSettingsChange } = useSettingsStore.getState();
-      const { pinnedFolders } = appSettings || { pinnedFolders: [] };
       const { setLibrary, sortCriteria, rootPaths, expandedFolders } = useLibraryStore.getState();
       const { setUI } = useUIStore.getState();
       const { setProcess } = useProcessStore.getState();
@@ -304,11 +303,11 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
             const recentFolders =
               appSettings.showRecentFolders === false
                 ? appSettings.recentFolders || []
-                : nextRecentFolders(appSettings.recentFolders || [], path, pinnedFolders || []);
+                : nextRecentFolders(appSettings.recentFolders || [], path, rootPaths || []);
             await handleSettingsChange({ ...appSettings, lastRootPath: path, recentFolders } as any);
           }
         } else if (path && expandParents) {
-          const allRoots = [...(rootPaths || []), ...(pinnedFolders || [])].filter(Boolean) as string[];
+          const allRoots = [...(rootPaths || [])].filter(Boolean) as string[];
           const relevantRoot = allRoots.find((r) => path.startsWith(r));
 
           if (relevantRoot) {
@@ -564,7 +563,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
           recentFolders: nextRecentFolders(
             appSettings.recentFolders || [],
             rootFolders[0],
-            appSettings.pinnedFolders || [],
+            rootFolders,
           ),
         } as any);
       }
@@ -590,7 +589,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
           const expandedArr = folderState?.expandedFolders
             ? Array.from(new Set(folderState.expandedFolders))
             : rootFolders;
-          treesData = await invoke(Invokes.GetPinnedFolderTrees, {
+          treesData = await invoke(Invokes.GetFolderTrees, {
             paths: rootFolders,
             expandedFolders: expandedArr,
             showImageCounts: appSettings?.enableFolderImageCounts ?? false,

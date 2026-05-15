@@ -77,7 +77,7 @@ export enum Invokes {
   GetFolderChildren = 'get_folder_children',
   GetLogFilePath = 'get_log_file_path',
   GetOrCreateInternalLibraryRoot = 'get_or_create_internal_library_root',
-  GetPinnedFolderTrees = 'get_pinned_folder_trees',
+  GetFolderTrees = 'get_folder_trees',
   GetSupportedFileTypes = 'get_supported_file_types',
   HandleExportPresetsToFile = 'handle_export_presets_to_file',
   HandleImportPresetsFromFile = 'handle_import_presets_from_file',
@@ -200,7 +200,6 @@ export interface AppSettings {
   enableExifReading?: boolean;
   filterCriteria?: FilterCriteria;
   lastFolderState?: any;
-  pinnedFolders?: any;
   recentFolders?: string[];
   showRecentFolders?: boolean;
   lastRootPath: string | null;

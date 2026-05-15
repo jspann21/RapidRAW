@@ -194,15 +194,6 @@ export function useFileOperations(
             setLibrary({ currentFolderPath: newCurrentPath });
           }
 
-          const currentPins = appSettings?.pinnedFolders || [];
-          if (currentPins.some((p: string) => isPathWithinFolder(p, oldPath))) {
-            const newPins = currentPins
-              .map((p: string) => replaceFolderPathPrefix(p, oldPath, newPath))
-              .sort((a: string, b: string) => a.localeCompare(b));
-            newAppSettings.pinnedFolders = newPins;
-            settingsChanged = true;
-          }
-
           const currentRecents = appSettings?.recentFolders || [];
           if (currentRecents.some((p: string) => isPathWithinFolder(p, oldPath))) {
             newAppSettings.recentFolders = currentRecents.map((p: string) => replaceFolderPathPrefix(p, oldPath, newPath));
