@@ -599,12 +599,11 @@ pub async fn invoke_generative_replace_with_mask_def(
 
         ai_processing::run_lama_inpainting(&source_image, &mask_bitmap, &lama_model)
             .map_err(|e| e.to_string())?
-    } else if ai_provider == "ai-connector" {
-        let Some(address) = settings.ai_connector_address else {
-            return Err(
-                "AI Connector is selected, but no connector address is configured.".to_string(),
-            );
-        };
+    } else if settings.ai_provider.as_deref() == Some("cloud")
+        && let Some(auth_token) = token
+    {
+        let base_url = "https://getrapidraw.com/api";
+
         let mut rgba_mask = RgbaImage::new(img_w, img_h);
         for (x, y, luma_pixel) in mask_bitmap.enumerate_pixels() {
             let intensity = luma_pixel[0];
@@ -613,70 +612,46 @@ pub async fn invoke_generative_replace_with_mask_def(
         let mask_image_dynamic = DynamicImage::ImageRgba8(rgba_mask);
 
         let (real_path_buf, _) = crate::file_management::parse_virtual_path(&path);
-        let real_path_str = real_path_buf.to_string_lossy().to_string();
 
         ai_connector::process_inpainting(
-            &address,
-            &real_path_str,
+            base_url,
+            &real_path_buf.to_string_lossy(),
             &source_image,
             &mask_image_dynamic,
             patch_definition.prompt,
+            Some(&auth_token),
         )
         .await
         .map_err(|e| e.to_string())?
-    } else if ai_provider == "cloud" {
-        let Some(auth_token) = token else {
-            return Err(
-                "Cloud AI is selected, but no cloud authentication token is available.".to_string(),
-            );
-        };
-        let client = reqwest::Client::new();
-        let api_url = "https://api.letshopeitcompiles.com/inpaint";
+    } else if settings.ai_provider.as_deref() == Some("ai-connector")
+        && let Some(address) = settings.ai_connector_address
+    {
+        let base_url = format!("http://{}", address);
 
-        let mut source_buf = Cursor::new(Vec::new());
-        DynamicImage::ImageRgba8(source_image.to_rgba8())
-            .write_to(&mut source_buf, ImageFormat::Png)
-            .map_err(|e| e.to_string())?;
-        let source_base64 = general_purpose::STANDARD.encode(source_buf.get_ref());
-
-        let mut mask_buf = Cursor::new(Vec::new());
-        mask_bitmap
-            .write_to(&mut mask_buf, ImageFormat::Png)
-            .map_err(|e| e.to_string())?;
-        let mask_base64 = general_purpose::STANDARD.encode(mask_buf.get_ref());
-
-        let request_body = serde_json::json!({
-            "prompt": patch_definition.prompt,
-            "image": source_base64,
-            "mask": mask_base64,
-        });
-
-        let response = client
-            .post(api_url)
-            .header("Authorization", format!("Bearer {}", auth_token))
-            .json(&request_body)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to send request to cloud service: {}", e))?;
-
-        if response.status().is_success() {
-            let response_bytes = response.bytes().await.map_err(|e| e.to_string())?;
-            image::load_from_memory(&response_bytes)
-                .map_err(|e| format!("Failed to decode cloud service response: {}", e))?
-                .to_rgba8()
-        } else {
-            let status = response.status();
-            let error_body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Could not read error body".to_string());
-            return Err(format!(
-                "Cloud service returned an error ({}): {}",
-                status, error_body
-            ));
+        let mut rgba_mask = RgbaImage::new(img_w, img_h);
+        for (x, y, luma_pixel) in mask_bitmap.enumerate_pixels() {
+            let intensity = luma_pixel[0];
+            rgba_mask.put_pixel(x, y, Rgba([intensity, intensity, intensity, 255]));
         }
+        let mask_image_dynamic = DynamicImage::ImageRgba8(rgba_mask);
+
+        let (real_path_buf, _) = crate::file_management::parse_virtual_path(&path);
+
+        ai_connector::process_inpainting(
+            &base_url,
+            &real_path_buf.to_string_lossy(),
+            &source_image,
+            &mask_image_dynamic,
+            patch_definition.prompt,
+            None,
+        )
+        .await
+        .map_err(|e| e.to_string())?
     } else {
-        return Err(format!("Unknown AI provider selected: {}", ai_provider));
+        return Err(
+            "No generative backend configured or connection invalid. Please check your AI settings."
+                .to_string(),
+        );
     };
 
     let (patch_w, patch_h) = patch_rgba.dimensions();

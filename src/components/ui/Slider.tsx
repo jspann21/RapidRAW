@@ -60,6 +60,16 @@ const Slider = ({
     startValue: number;
   } | null>(null);
   const suppressTouchChangeRef = useRef(false);
+  const isWheelActivelyChangingRef = useRef(false);
+  const wheelTimeoutRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (wheelTimeoutRef.current !== undefined) {
+        window.clearTimeout(wheelTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const fillPercentage = max !== min ? ((displayValue - min) / (max - min)) * 100 : 0;
   const originPercentage = useMemo(() => {
@@ -104,12 +114,22 @@ const Slider = ({
 
       event.preventDefault();
       const direction = -Math.sign(event.deltaY || event.deltaX);
-      const newValue = value + direction * step * 2;
+      const newValue = value + direction * step;
       const roundedNewValue = parseFloat(newValue.toFixed(decimalPlaces));
 
       const clampedValue = Math.max(min, Math.min(max, roundedNewValue));
 
       if (clampedValue !== value && !isNaN(clampedValue)) {
+        isWheelActivelyChangingRef.current = true;
+        setDisplayValue(clampedValue);
+
+        if (wheelTimeoutRef.current !== undefined) {
+          window.clearTimeout(wheelTimeoutRef.current);
+        }
+        wheelTimeoutRef.current = window.setTimeout(() => {
+          isWheelActivelyChangingRef.current = false;
+        }, 150);
+
         const syntheticEvent = {
           target: {
             value: clampedValue,
@@ -126,6 +146,7 @@ const Slider = ({
     };
   }, [value, min, max, step, onChange, decimalPlaces]);
 
+  // Handle Dragging
   useEffect(() => {
     if (!isDragging) return;
 
@@ -196,6 +217,14 @@ const Slider = ({
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
+      return;
+    }
+
+    if (isWheelActivelyChangingRef.current) {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      setDisplayValue(value);
       return;
     }
 
@@ -320,18 +349,12 @@ const Slider = ({
     const deltaX = touch.clientX - pendingTouch.startX;
     const deltaY = touch.clientY - pendingTouch.startY;
 
-    if (
-      Math.abs(deltaY) > TOUCH_DRAG_THRESHOLD_PX &&
-      Math.abs(deltaY) > Math.abs(deltaX)
-    ) {
+    if (Math.abs(deltaY) > TOUCH_DRAG_THRESHOLD_PX && Math.abs(deltaY) > Math.abs(deltaX)) {
       pendingTouchRef.current = null;
       return;
     }
 
-    if (
-      Math.abs(deltaX) < TOUCH_DRAG_THRESHOLD_PX ||
-      Math.abs(deltaX) < Math.abs(deltaY)
-    ) {
+    if (Math.abs(deltaX) < TOUCH_DRAG_THRESHOLD_PX || Math.abs(deltaX) < Math.abs(deltaY)) {
       return;
     }
 

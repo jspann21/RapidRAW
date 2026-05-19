@@ -369,7 +369,6 @@ pub struct AppSettings {
     pub local_ai_generation_settings: LocalAiGenerationSettings,
     #[serde(default = "default_adjustment_visibility")]
     pub adjustment_visibility: HashMap<String, bool>,
-    pub enable_exif_reading: Option<bool>,
     #[serde(default = "default_open_tree_sections")]
     pub open_tree_sections: Vec<String>,
     #[serde(default)]
@@ -430,6 +429,14 @@ pub struct AppSettings {
     pub google_photos_album_id: Option<String>,
     #[serde(default)]
     pub google_photos_album_title: Option<String>,
+    #[serde(default)]
+    pub folder_icons: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub raw_preprocessing_color_nr: Option<f32>,
+    #[serde(default)]
+    pub raw_preprocessing_sharpening: Option<f32>,
+    #[serde(default)]
+    pub apply_preprocessing_to_non_raws: Option<bool>,
 }
 
 impl Default for AppSettings {
@@ -472,7 +479,6 @@ impl Default for AppSettings {
             local_ai_cudnn_runtime_path: None,
             local_ai_generation_settings: LocalAiGenerationSettings::default(),
             adjustment_visibility: default_adjustment_visibility(),
-            enable_exif_reading: Some(false),
             open_tree_sections: default_open_tree_sections(),
             copy_paste_settings: CopyPasteSettings::default(),
             raw_highlight_compression: Some(2.5),
@@ -519,6 +525,10 @@ impl Default for AppSettings {
             google_photos_client_secret: None,
             google_photos_album_id: None,
             google_photos_album_title: Some("RapidRaw".to_string()),
+            folder_icons: Some(HashMap::new()),
+            raw_preprocessing_color_nr: Some(0.5),
+            raw_preprocessing_sharpening: Some(0.35),
+            apply_preprocessing_to_non_raws: Some(false),
         }
     }
 }

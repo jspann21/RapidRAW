@@ -117,19 +117,16 @@ export default function MainLibrary(props: MainLibraryProps) {
 
   const searchCriteria = useLibraryStore((state) => state.searchCriteria);
 
-  const sortOptions = useMemo(() => {
-    const exifEnabled = props.appSettings?.enableExifReading ?? false;
-    return [
-      { key: 'name', label: 'File Name' },
-      { key: 'date', label: 'Date Modified' },
-      { key: 'rating', label: 'Rating' },
-      { key: 'date_taken', label: 'Date Taken', disabled: !exifEnabled },
-      { key: 'focal_length', label: 'Focal Length', disabled: !exifEnabled },
-      { key: 'iso', label: 'ISO', disabled: !exifEnabled },
-      { key: 'shutter_speed', label: 'Shutter Speed', disabled: !exifEnabled },
-      { key: 'aperture', label: 'Aperture', disabled: !exifEnabled },
-    ];
-  }, [props.appSettings?.enableExifReading]);
+  const sortOptions = [
+    { key: 'name', label: 'File Name' },
+    { key: 'date', label: 'Date Modified' },
+    { key: 'rating', label: 'Rating' },
+    { key: 'date_taken', label: 'Date Taken' },
+    { key: 'focal_length', label: 'Focal Length' },
+    { key: 'iso', label: 'ISO' },
+    { key: 'shutter_speed', label: 'Shutter Speed' },
+    { key: 'aperture', label: 'Aperture' },
+  ];
 
   const isBusy =
     props.isLoading ||

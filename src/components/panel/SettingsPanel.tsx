@@ -32,7 +32,7 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
-import { useUser } from '@clerk/react';
+import { Show, SignIn, useUser, useAuth, useClerk } from '@clerk/react';
 import Button from '../ui/Button';
 import ConfirmModal from '../modals/ConfirmModal';
 import Dropdown, { OptionItem } from '../ui/Dropdown';
@@ -42,8 +42,6 @@ import Slider from '../ui/Slider';
 import { ThemeProps, THEMES, DEFAULT_THEME_ID } from '../../utils/themes';
 import { Invokes } from '../ui/AppProperties';
 import {
-  arraysEqual,
-  codeToDisplayLabel,
   formatKeyCode,
   KeybindDefinition,
   KEYBIND_DEFINITIONS,
@@ -53,6 +51,7 @@ import {
 import Text from '../ui/Text';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useOsPlatform } from '../../hooks/useOsPlatform';
+import { open } from '@tauri-apps/plugin-shell';
 
 interface ConfirmModalState {
   cancelText?: string;
@@ -470,6 +469,87 @@ const AiProviderSwitch = ({ selectedProvider, onProviderChange }: AiProviderSwit
   );
 };
 
+const CloudDashboard = () => {
+  const { user } = useUser();
+  const { getToken } = useAuth();
+  const { signOut } = useClerk();
+  const [usage, setUsage] = useState<{ requests: number; limit: number; month: string } | null>(null);
+
+  useEffect(() => {
+    const fetchUsage = async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await fetch('https://getrapidraw.com/api/usage', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          setUsage(await res.json());
+        }
+      } catch (e) {
+        console.error('Failed to fetch cloud usage', e);
+      }
+    };
+    fetchUsage();
+  }, [getToken]);
+
+  const isPro = user?.publicMetadata?.plan === 'pro';
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between border-b border-border-color pb-4">
+        <div className="flex items-center gap-3">
+          <div>
+            <Text variant={TextVariants.heading}>{user?.fullName || user?.primaryEmailAddress?.emailAddress}</Text>
+            <Text variant={TextVariants.small} color={isPro ? TextColors.success : TextColors.error}>
+              {isPro ? 'Cloud Subscription Active' : 'No Active Subscription'}
+            </Text>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="ghost"
+            className="bg-transparent text-text-secondary hover:text-text-primary hover:bg-surface border-none shadow-none"
+            onClick={() => open('https://www.getrapidraw.com/dashboard')}
+          >
+            Manage <ExternalLinkIcon size={14} className="ml-1" />
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={async () => {
+              await signOut();
+            }}
+          >
+            Log Out
+          </Button>
+        </div>
+      </div>
+
+      {isPro ? (
+        <div className="bg-surface p-4 rounded-md">
+          <div className="flex justify-between items-center mb-2">
+            <Text variant={TextVariants.label}>Monthly Usage</Text>
+            <Text variant={TextVariants.small}>
+              {usage?.requests ?? 0} / {usage?.limit ?? 500} requests
+            </Text>
+          </div>
+          <div className="w-full bg-bg-primary rounded-full h-2">
+            <div
+              className="bg-accent h-2 rounded-full transition-all duration-500"
+              style={{ width: `${Math.min(100, ((usage?.requests ?? 0) / (usage?.limit ?? 500)) * 100)}%` }}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="bg-red-900/10 border border-red-500/50 p-4 rounded-md text-center">
+          <Text className="mb-3">To use Cloud AI features, you need a Cloud subscription.</Text>
+          <Button onClick={() => open('https://www.getrapidraw.com/cloud')}>Upgrade on Website</Button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const canvasInputModes = [
   { id: 'mouse', label: 'Mouse', icon: Mouse },
   { id: 'trackpad', label: 'Touchpad', icon: Touchpad },
@@ -626,6 +706,9 @@ export default function SettingsPanel({
       appSettings?.useWgpuRenderer ?? (osPlatform === 'linux' || osPlatform === 'android' ? false : true),
     thumbnailWorkerThreads: appSettings?.thumbnailWorkerThreads ?? 4,
     imageCacheSize: appSettings?.imageCacheSize ?? 5,
+    rawPreprocessingColorNr: appSettings?.rawPreprocessingColorNr ?? 0.5,
+    rawPreprocessingSharpening: appSettings?.rawPreprocessingSharpening ?? 0.35,
+    applyPreprocessingToNonRaws: appSettings?.applyPreprocessingToNonRaws ?? false,
   });
   const [restartRequired, setRestartRequired] = useState(false);
   const [activeCategory, setActiveCategory] = useState('general');
@@ -690,6 +773,9 @@ export default function SettingsPanel({
       useWgpuRenderer: appSettings?.useWgpuRenderer ?? true,
       thumbnailWorkerThreads: appSettings?.thumbnailWorkerThreads ?? 4,
       imageCacheSize: appSettings?.imageCacheSize ?? 5,
+      rawPreprocessingColorNr: appSettings?.rawPreprocessingColorNr ?? 0.5,
+      rawPreprocessingSharpening: appSettings?.rawPreprocessingSharpening ?? 0.35,
+      applyPreprocessingToNonRaws: appSettings?.applyPreprocessingToNonRaws ?? false,
     });
     setRestartRequired(false);
   }, [appSettings]);
@@ -711,8 +797,9 @@ export default function SettingsPanel({
       .catch(console.error);
   }, []);
 
-  const handleProcessingSettingChange = (key: string, value: any) => {
+  const handleProcessingSettingChange = async (key: string, value: any) => {
     setProcessingSettings((prev) => ({ ...prev, [key]: value }));
+
     if (
       key === 'processingBackend' ||
       key === 'linuxGpuOptimization' ||
@@ -721,7 +808,15 @@ export default function SettingsPanel({
     ) {
       setRestartRequired(true);
     } else {
-      onSettingsChange({ ...appSettings, [key]: value });
+      await onSettingsChange({ ...appSettings, [key]: value });
+      if (
+        key === 'rawHighlightCompression' ||
+        key === 'rawPreprocessingColorNr' ||
+        key === 'rawPreprocessingSharpening' ||
+        key === 'applyPreprocessingToNonRaws'
+      ) {
+        await invoke('clear_image_caches');
+      }
     }
   };
 
@@ -1638,48 +1733,53 @@ export default function SettingsPanel({
                       />
                     </SettingItem>
 
-                    <SettingItem
-                      label="EXIF Library Sorting"
-                      description="Read EXIF data (ISO, aperture, etc.) on folder load at the cost of slower folder loading when using EXIF sorting."
-                    >
-                      <Switch
-                        checked={appSettings?.enableExifReading ?? false}
-                        id="exif-reading-toggle"
-                        label="EXIF Reading"
-                        onChange={(checked) => onSettingsChange({ ...appSettings, enableExifReading: checked })}
-                      />
-                    </SettingItem>
+                    <div className="space-y-4">
+                      <SettingItem
+                        label="XMP Metadata Sync"
+                        description="Sync ratings, color labels and tags to standard XMP sidecar files for compatibility with other photo editors."
+                      >
+                        <Switch
+                          checked={appSettings?.enableXmpSync ?? true}
+                          id="enable-xmp-sync-toggle"
+                          label="Enable XMP Sync"
+                          onChange={(checked) => {
+                            const newSettings = { ...appSettings, enableXmpSync: checked };
+                            if (!checked) {
+                              newSettings.createXmpIfMissing = false;
+                            }
+                            onSettingsChange(newSettings);
+                          }}
+                        />
+                      </SettingItem>
 
-                    <SettingItem
-                      label="XMP Metadata Sync"
-                      description="Sync ratings, color labels and tags to standard XMP sidecar files for compatibility with other photo editors."
-                    >
-                      <Switch
-                        checked={appSettings?.enableXmpSync ?? true}
-                        id="enable-xmp-sync-toggle"
-                        label="Enable XMP Sync"
-                        onChange={(checked) => {
-                          const newSettings = { ...appSettings, enableXmpSync: checked };
-                          if (!checked) {
-                            newSettings.createXmpIfMissing = false;
-                          }
-                          onSettingsChange(newSettings);
-                        }}
-                      />
-                    </SettingItem>
-
-                    <SettingItem
-                      label="Create Missing XMP Files"
-                      description="Automatically create a new XMP sidecar file if one does not exist for an image. (Requires XMP Sync)"
-                    >
-                      <Switch
-                        disabled={!appSettings?.enableXmpSync}
-                        checked={appSettings?.createXmpIfMissing ?? false}
-                        id="create-xmp-missing-toggle"
-                        label="Create XMP if missing"
-                        onChange={(checked) => onSettingsChange({ ...appSettings, createXmpIfMissing: checked })}
-                      />
-                    </SettingItem>
+                      <AnimatePresence initial={false}>
+                        {(appSettings?.enableXmpSync ?? true) && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.3, ease: 'easeInOut' }}
+                            className="overflow-hidden"
+                          >
+                            <div className="pl-4 border-l-2 border-border-color ml-1">
+                              <SettingItem
+                                label="Create Missing XMP Files"
+                                description="Automatically create a new XMP sidecar file if one does not exist for an image."
+                              >
+                                <Switch
+                                  checked={appSettings?.createXmpIfMissing ?? false}
+                                  id="create-xmp-missing-toggle"
+                                  label="Create XMP if missing"
+                                  onChange={(checked) =>
+                                    onSettingsChange({ ...appSettings, createXmpIfMissing: checked })
+                                  }
+                                />
+                              </SettingItem>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
 
                     <SettingItem
                       label="Folder Image Counts"
@@ -2226,7 +2326,6 @@ export default function SettingsPanel({
                 </div>
               </motion.div>
             )}
-
             {activeCategory === 'processing' && (
               <motion.div
                 key="processing"
@@ -2405,24 +2504,6 @@ export default function SettingsPanel({
                     </SettingItem>
 
                     <SettingItem
-                      label="RAW Highlight Recovery"
-                      description="Controls how much detail is recovered from clipped highlights in RAW files. Higher values recover more detail but can introduce purple artefacts."
-                    >
-                      <Slider
-                        label="Amount"
-                        min={1}
-                        max={10}
-                        step={0.1}
-                        value={processingSettings.rawHighlightCompression}
-                        defaultValue={2.5}
-                        onChange={(e: any) =>
-                          handleProcessingSettingChange('rawHighlightCompression', parseFloat(e.target.value))
-                        }
-                        fillOrigin="min"
-                      />
-                    </SettingItem>
-
-                    <SettingItem
                       label="Thumbnail Worker Threads"
                       description="Number of parallel threads used to generate thumbnails. Higher values speed up library loading but use more CPU & RAM."
                     >
@@ -2453,6 +2534,144 @@ export default function SettingsPanel({
                         defaultValue={5}
                         onChange={(e: any) => handleProcessingSettingChange('imageCacheSize', parseInt(e.target.value))}
                         fillOrigin="min"
+                      />
+                    </SettingItem>
+
+                    <SettingItem
+                      label="WGPU Direct Rendering"
+                      description={
+                        osPlatform === 'linux'
+                          ? 'Bypasses browser encoding for instantly responsive live previews. (Disabled on Linux: Tauri uses GTK for webviews, which conflicts with WGPU on the same X11 surface and causes flickering.)'
+                          : osPlatform === 'android'
+                            ? 'Bypasses browser encoding for instantly responsive live previews. (Disabled on Android: Native WGPU surface creation is currently not supported alongside the mobile webview.)'
+                            : 'Bypasses browser encoding for instantly responsive live previews. Highly recommended for performance.'
+                      }
+                    >
+                      <Switch
+                        checked={processingSettings.useWgpuRenderer}
+                        disabled={osPlatform === 'linux' || osPlatform === 'android'}
+                        id="wgpu-renderer-toggle"
+                        label="Enable Direct WGPU Render"
+                        onChange={(checked) => handleProcessingSettingChange('useWgpuRenderer', checked)}
+                      />
+                    </SettingItem>
+
+                    <SettingItem
+                      label="Processing Backend"
+                      description="Select the graphics API. 'Auto' is recommended. May fix crashes on some systems."
+                    >
+                      <Dropdown
+                        onChange={(value: any) => handleProcessingSettingChange('processingBackend', value)}
+                        options={filteredBackendOptions}
+                        value={
+                          filteredBackendOptions.some((option) => option.value === processingSettings.processingBackend)
+                            ? processingSettings.processingBackend
+                            : 'auto'
+                        }
+                        triggerClassName="bg-bg-primary"
+                      />
+                    </SettingItem>
+
+                    {osPlatform !== 'macos' && osPlatform !== 'windows' && (
+                      <SettingItem
+                        label="Linux Compatibility Mode"
+                        description="Enable workarounds for common GPU driver and display server issues. Disable this to enable full GPU acceleration."
+                      >
+                        <Switch
+                          checked={processingSettings.linuxGpuOptimization}
+                          id="gpu-compat-toggle"
+                          label="Enable Compatibility Mode"
+                          onChange={(checked) => handleProcessingSettingChange('linuxGpuOptimization', checked)}
+                        />
+                      </SettingItem>
+                    )}
+
+                    {restartRequired && (
+                      <>
+                        <Text
+                          as="div"
+                          color={TextColors.info}
+                          className="p-3 bg-blue-900/10 border border-blue-500/50 rounded-lg flex items-center gap-3"
+                        >
+                          <Info size={18} />
+                          <p>Changes to the processing engine require an application restart to take effect.</p>
+                        </Text>
+                        <div className="flex justify-end">
+                          <Button onClick={handleSaveAndRelaunch}>Save & Relaunch</Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-6 bg-surface rounded-xl shadow-md">
+                  <Text variant={TextVariants.title} color={TextColors.accent} className="mb-8">
+                    Image Preprocessing
+                  </Text>
+                  <div className="space-y-8">
+                    <SettingItem
+                      label="RAW Highlight Recovery"
+                      description="Controls how much detail is recovered from clipped highlights in RAW files. Higher values recover more detail but can introduce purple artefacts."
+                    >
+                      <Slider
+                        label="Amount"
+                        min={1}
+                        max={10}
+                        step={0.1}
+                        value={processingSettings.rawHighlightCompression}
+                        defaultValue={2.5}
+                        onChange={(e: any) =>
+                          handleProcessingSettingChange('rawHighlightCompression', parseFloat(e.target.value))
+                        }
+                        fillOrigin="min"
+                      />
+                    </SettingItem>
+
+                    <SettingItem
+                      label="Base Color Noise Reduction"
+                      description="Applies a cross-bilateral filter early in the pipeline to remove chroma noise. Higher value = Stronger NR."
+                    >
+                      <Slider
+                        label="Amount"
+                        min={0}
+                        max={1.0}
+                        step={0.05}
+                        value={processingSettings.rawPreprocessingColorNr}
+                        defaultValue={0.5}
+                        onChange={(e: any) =>
+                          handleProcessingSettingChange('rawPreprocessingColorNr', parseFloat(e.target.value))
+                        }
+                        fillOrigin="min"
+                      />
+                    </SettingItem>
+
+                    <SettingItem
+                      label="Base Pre-Sharpening"
+                      description="Applies gentle detail enhancement early in the pipeline. Higher value = More sharpening."
+                    >
+                      <Slider
+                        label="Amount"
+                        min={0}
+                        max={1.0}
+                        step={0.05}
+                        value={processingSettings.rawPreprocessingSharpening}
+                        defaultValue={0.35}
+                        onChange={(e: any) =>
+                          handleProcessingSettingChange('rawPreprocessingSharpening', parseFloat(e.target.value))
+                        }
+                        fillOrigin="min"
+                      />
+                    </SettingItem>
+
+                    <SettingItem
+                      label="Apply Preprocessing to Non-RAWs"
+                      description="If enabled, the base color noise reduction and pre-sharpening above will also be applied to standard formats."
+                    >
+                      <Switch
+                        checked={processingSettings.applyPreprocessingToNonRaws}
+                        id="preprocessing-non-raws-toggle"
+                        label="Enable for Non-RAWs"
+                        onChange={(checked) => handleProcessingSettingChange('applyPreprocessingToNonRaws', checked)}
                       />
                     </SettingItem>
 
@@ -2524,71 +2743,6 @@ export default function SettingsPanel({
                         )}
                       </AnimatePresence>
                     </div>
-
-                    <SettingItem
-                      label="WGPU Direct Rendering"
-                      description={
-                        osPlatform === 'linux'
-                          ? 'Bypasses browser encoding for instantly responsive live previews. (Disabled on Linux: Tauri uses GTK for webviews, which conflicts with WGPU on the same X11 surface and causes flickering.)'
-                          : osPlatform === 'android'
-                            ? 'Bypasses browser encoding for instantly responsive live previews. (Disabled on Android: Native WGPU surface creation is currently not supported alongside the mobile webview.)'
-                            : 'Bypasses browser encoding for instantly responsive live previews. Highly recommended for performance.'
-                      }
-                    >
-                      <Switch
-                        checked={processingSettings.useWgpuRenderer}
-                        disabled={osPlatform === 'linux' || osPlatform === 'android'}
-                        id="wgpu-renderer-toggle"
-                        label="Enable Direct WGPU Render"
-                        onChange={(checked) => handleProcessingSettingChange('useWgpuRenderer', checked)}
-                      />
-                    </SettingItem>
-
-                    <SettingItem
-                      label="Processing Backend"
-                      description="Select the graphics API. 'Auto' is recommended. May fix crashes on some systems."
-                    >
-                      <Dropdown
-                        onChange={(value: any) => handleProcessingSettingChange('processingBackend', value)}
-                        options={filteredBackendOptions}
-                        value={
-                          filteredBackendOptions.some((option) => option.value === processingSettings.processingBackend)
-                            ? processingSettings.processingBackend
-                            : 'auto'
-                        }
-                        triggerClassName="bg-bg-primary"
-                      />
-                    </SettingItem>
-
-                    {osPlatform !== 'macos' && osPlatform !== 'windows' && (
-                      <SettingItem
-                        label="Linux Compatibility Mode"
-                        description="Enable workarounds for common GPU driver and display server issues. Disable this to enable full GPU acceleration."
-                      >
-                        <Switch
-                          checked={processingSettings.linuxGpuOptimization}
-                          id="gpu-compat-toggle"
-                          label="Enable Compatibility Mode"
-                          onChange={(checked) => handleProcessingSettingChange('linuxGpuOptimization', checked)}
-                        />
-                      </SettingItem>
-                    )}
-
-                    {restartRequired && (
-                      <>
-                        <Text
-                          as="div"
-                          color={TextColors.info}
-                          className="p-3 bg-blue-900/10 border border-blue-500/50 rounded-lg flex items-center gap-3"
-                        >
-                          <Info size={18} />
-                          <p>Changes to the processing engine require an application restart to take effect.</p>
-                        </Text>
-                        <div className="flex justify-end">
-                          <Button onClick={handleSaveAndRelaunch}>Save & Relaunch</Button>
-                        </div>
-                      </>
-                    )}
                   </div>
                 </div>
 
@@ -3499,18 +3653,74 @@ export default function SettingsPanel({
                             <li>No powerful hardware required</li>
                           </Text>
 
-                          <div className="mt-8 p-4 bg-bg-primary rounded-lg border border-border-color text-center space-y-3">
-                            <Text
-                              variant={TextVariants.small}
-                              color={TextColors.button}
-                              weight={TextWeights.semibold}
-                              className="inline-block bg-accent px-2 py-1 rounded-full"
-                            >
-                              Coming Soon
-                            </Text>
-                            <Text>
-                              Keep an eye on the GitHub page to be notified when the cloud service is available.
-                            </Text>
+                          <div className="mt-8">
+                            <Show when="signed-in">
+                              <div className="p-6 bg-bg-primary rounded-xl border border-border-color shadow-inner">
+                                <CloudDashboard />
+                              </div>
+                            </Show>
+                            <Show when="signed-out">
+                              <div className="w-full max-w-md">
+                                <SignIn
+                                  routing="hash"
+                                  fallbackRedirectUrl="/"
+                                  forceRedirectUrl="/"
+                                  appearance={{
+                                    variables: {
+                                      colorBackground: 'transparent',
+                                      colorInput: 'transparent',
+                                      colorForeground: 'inherit',
+                                      colorInputForeground: 'inherit',
+                                      colorTextOnPrimaryBackground: 'inherit',
+                                      colorPrimaryForeground: 'inherit',
+                                      colorBorder: 'transparent',
+                                      colorShadow: 'none',
+                                      colorNeutral: 'inherit',
+                                    },
+                                    elements: {
+                                      rootBox: '',
+
+                                      cardBox: '!shadow-none !m-0 !p-0 !rounded-none',
+
+                                      card: '!bg-transparent !border-none !shadow-none !py-0 !px-1 !rounded-none',
+
+                                      header: '!hidden',
+
+                                      formFieldLabel: '!text-base !font-semibold !text-text-primary !block !mb-2',
+
+                                      formFieldAction:
+                                        '!text-text-secondary hover:!text-text-primary !transition-colors !no-underline hover:!underline',
+
+                                      formFieldInput:
+                                        '!bg-bg-primary !border !border-border-color !text-text-primary focus:!border-accent focus:!ring-1 focus:!ring-accent !rounded-md !px-3 !py-2',
+
+                                      formButtonPrimary:
+                                        '!bg-accent !text-button-text hover:!bg-accent/90 !shadow-none !transition-colors !rounded-md !mt-4 !py-2',
+
+                                      footer:
+                                        '!bg-transparent !p-0 !mt-4 opacity-50 hover:opacity-100 transition-opacity',
+                                      footerAction: '!hidden',
+
+                                      identityPreview: '!bg-bg-primary !border !border-border-color !rounded-md !mb-4',
+                                      identityPreviewText: '!text-text-primary !font-medium',
+                                      identityPreviewEditButtonIcon:
+                                        '!text-text-secondary hover:!text-text-primary !transition-colors',
+                                    },
+                                  }}
+                                />
+                                <div className="mt-6">
+                                  <Text variant={TextVariants.small}>
+                                    Don't have an account?{' '}
+                                    <button
+                                      onClick={() => open('https://www.getrapidraw.com/dashboard')}
+                                      className="text-accent hover:underline focus:outline-none"
+                                    >
+                                      Sign up on the website
+                                    </button>
+                                  </Text>
+                                </div>
+                              </div>
+                            </Show>
                           </div>
                         </motion.div>
                       )}

@@ -363,9 +363,8 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
 
         const exifSortKeys = ['date_taken', 'iso', 'shutter_speed', 'aperture', 'focal_length'];
         const isExifSortActive = exifSortKeys.includes(sortCriteria.key);
-        const shouldReadExif = appSettings?.enableExifReading ?? false;
 
-        if (shouldReadExif && files.length > 0) {
+        if (files.length > 0) {
           const paths = files.map((f: ImageFile) => f.path);
 
           if (isExifSortActive) {

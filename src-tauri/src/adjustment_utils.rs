@@ -90,19 +90,6 @@ pub fn hydrate_adjustments(state: &tauri::State<AppState>, adjustments: &mut ser
     }
 }
 
-#[tauri::command]
-pub fn clear_session_caches(state: tauri::State<AppState>) {
-    if let Ok(mut patch_cache) = state.patch_cache.lock() {
-        patch_cache.clear();
-    }
-    if let Ok(mut mask_cache) = state.mask_cache.lock() {
-        mask_cache.clear();
-    }
-    if let Ok(mut geometry_cache) = state.geometry_cache.lock() {
-        geometry_cache.clear();
-    }
-}
-
 pub fn apply_all_transformations<'a, I: IntoCowImage<'a>>(
     image: I,
     adjustments: &serde_json::Value,

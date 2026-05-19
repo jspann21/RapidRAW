@@ -135,86 +135,71 @@ export function computeSortedLibrary(libraryState: any, settingsState: any): Ima
 
   const list = [...filteredBySearch];
 
-  const parseShutter = (val: string | undefined): number | null => {
-    if (!val) return null;
+  const parseShutter = (val: string | undefined): number => {
+    if (!val) return 0;
     const cleanVal = val.replace(/s/i, '').trim();
     const parts = cleanVal.split('/');
     if (parts.length === 2) {
       const num = parseFloat(parts[0]);
       const den = parseFloat(parts[1]);
-      return den !== 0 ? num / den : null;
+      return den !== 0 ? num / den : 0;
     }
     const numVal = parseFloat(cleanVal);
-    return isNaN(numVal) ? null : numVal;
+    return isNaN(numVal) ? 0 : numVal;
   };
 
-  const parseAperture = (val: string | undefined): number | null => {
-    if (!val) return null;
+  const parseAperture = (val: string | undefined): number => {
+    if (!val) return 0;
     const match = val.match(/(\d+(\.\d+)?)/);
-    const numVal = match ? parseFloat(match[0]) : null;
-    return numVal === null || isNaN(numVal) ? null : numVal;
+    const numVal = match ? parseFloat(match[0]) : 0;
+    return isNaN(numVal) ? 0 : numVal;
   };
 
-  const parseFocalLength = (val: string | undefined): number | null => {
-    if (!val) return null;
+  const parseFocalLength = (val: string | undefined): number => {
+    if (!val) return 0;
     const match = val.match(/(\d+(\.\d+)?)/);
-    if (!match) return null;
+    if (!match) return 0;
     const numVal = parseFloat(match[0]);
-    return isNaN(numVal) ? null : numVal;
+    return isNaN(numVal) ? 0 : numVal;
   };
 
   list.sort((a, b) => {
     const { key, order } = sortCriteria;
     let comparison = 0;
 
-    const compareNullable = (valA: any, valB: any) => {
-      if (valA !== null && valB !== null) {
-        if (valA < valB) return -1;
-        if (valA > valB) return 1;
-        return 0;
-      }
-      if (valA !== null) return -1;
-      if (valB !== null) return 1;
-      return 0;
-    };
-
     switch (key) {
       case 'date_taken': {
-        const dateA = a.exif?.DateTimeOriginal;
-        const dateB = b.exif?.DateTimeOriginal;
-        comparison = compareNullable(dateA, dateB);
-        if (comparison === 0) comparison = a.modified - b.modified;
+        const dateA = a.exif?.DateTimeOriginal || '';
+        const dateB = b.exif?.DateTimeOriginal || '';
+        if (dateA !== dateB) {
+          comparison = dateA < dateB ? -1 : 1;
+        } else {
+          comparison = a.modified - b.modified;
+        }
         break;
       }
       case 'iso': {
-        const getIso = (exif: { [key: string]: string } | null): number | null => {
-          if (!exif) return null;
-          const isoStr = exif.PhotographicSensitivity || exif.ISOSpeedRatings;
-          if (!isoStr) return null;
-          const isoNum = parseInt(isoStr, 10);
-          return isNaN(isoNum) ? null : isoNum;
-        };
-        const isoA = getIso(a.exif);
-        const isoB = getIso(b.exif);
-        comparison = compareNullable(isoA, isoB);
+        const isoA = parseInt(a.exif?.PhotographicSensitivity || a.exif?.ISOSpeedRatings || '0', 10) || 0;
+        const isoB = parseInt(b.exif?.PhotographicSensitivity || b.exif?.ISOSpeedRatings || '0', 10) || 0;
+        comparison = isoA - isoB;
         break;
       }
       case 'shutter_speed': {
         const shutterA = parseShutter(a.exif?.ExposureTime);
         const shutterB = parseShutter(b.exif?.ExposureTime);
-        comparison = compareNullable(shutterA, shutterB);
+        comparison = shutterA - shutterB;
         break;
       }
       case 'aperture': {
         const apertureA = parseAperture(a.exif?.FNumber);
         const apertureB = parseAperture(b.exif?.FNumber);
-        comparison = compareNullable(apertureA, apertureB);
+        comparison = apertureA - apertureB;
         break;
       }
       case 'focal_length': {
         const focalA = parseFocalLength(a.exif?.FocalLength);
         const focalB = parseFocalLength(b.exif?.FocalLength);
-        comparison = compareNullable(focalA, focalB);
+        comparison = focalA - focalB;
         break;
       }
       case 'date':
@@ -223,13 +208,18 @@ export function computeSortedLibrary(libraryState: any, settingsState: any): Ima
       case 'rating':
         comparison = (imageRatings[a.path] || 0) - (imageRatings[b.path] || 0);
         break;
-      default:
-        comparison = a.path.localeCompare(b.path);
+      default: {
+        const nameA = a.path.split(/[\\/]/).pop() || a.path;
+        const nameB = b.path.split(/[\\/]/).pop() || b.path;
+        comparison = nameA.localeCompare(nameB);
         break;
+      }
     }
 
     if (comparison === 0 && key !== 'name') {
-      return a.path.localeCompare(b.path);
+      const nameA = a.path.split(/[\\/]/).pop() || a.path;
+      const nameB = b.path.split(/[\\/]/).pop() || b.path;
+      return nameA.localeCompare(nameB);
     }
 
     return order === SortDirection.Ascending ? comparison : -comparison;

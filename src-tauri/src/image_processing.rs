@@ -57,6 +57,8 @@ pub struct ImageMetadata {
     pub edit_history: Option<Value>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exif: Option<std::collections::HashMap<String, String>>,
 }
 
 impl Default for ImageMetadata {
@@ -67,6 +69,7 @@ impl Default for ImageMetadata {
             adjustments: Value::Null,
             edit_history: None,
             tags: None,
+            exif: None,
         }
     }
 }
@@ -2242,7 +2245,11 @@ fn yc_to_rgb(y: f32, cb: f32, cr: f32) -> (f32, f32, f32) {
     (r, g, b)
 }
 
-pub fn remove_raw_artifacts_and_enhance(image: &mut DynamicImage) {
+pub fn remove_raw_artifacts_and_enhance(
+    image: &mut DynamicImage,
+    color_nr_inv_sigma: f32,
+    sharpening_amount: f32,
+) {
     let mut buffer = image.to_rgb32f();
     let w = buffer.width() as usize;
     let h = buffer.height() as usize;
@@ -2261,89 +2268,93 @@ pub fn remove_raw_artifacts_and_enhance(image: &mut DynamicImage) {
             dest[2] = cr;
         });
 
-    const BASE_INV_SIGMA: f32 = 14.0;
-    const OFFSETS: [isize; 3] = [-5, -1, 3];
-    const OFFSET_SQUARES: [f32; 3] = [25.0, 1.0, 9.0];
+    if color_nr_inv_sigma > 0.0 {
+        let base_inv_sigma = color_nr_inv_sigma;
+        const OFFSETS: [isize; 3] = [-5, -1, 3];
+        const OFFSET_SQUARES: [f32; 3] = [25.0, 1.0, 9.0];
 
-    buffer
-        .par_chunks_mut(w * 3)
-        .enumerate()
-        .for_each(|(y, row)| {
-            let row_offset = y * w;
-            let h_isize = h as isize;
-            let w_isize = w as isize;
-            let y_isize = y as isize;
+        buffer
+            .par_chunks_mut(w * 3)
+            .enumerate()
+            .for_each(|(y, row)| {
+                let row_offset = y * w;
+                let h_isize = h as isize;
+                let w_isize = w as isize;
+                let y_isize = y as isize;
 
-            for x in 0..w {
-                let center_idx = (row_offset + x) * 3;
+                for x in 0..w {
+                    let center_idx = (row_offset + x) * 3;
 
-                let cy = ycbcr_buffer[center_idx];
-                let ccb = ycbcr_buffer[center_idx + 1];
-                let ccr = ycbcr_buffer[center_idx + 2];
+                    let cy = ycbcr_buffer[center_idx];
+                    let ccb = ycbcr_buffer[center_idx + 1];
+                    let ccr = ycbcr_buffer[center_idx + 2];
 
-                let mut cb_sum = 0.0;
-                let mut cr_sum = 0.0;
-                let mut w_sum = 0.0;
+                    let mut cb_sum = 0.0;
+                    let mut cr_sum = 0.0;
+                    let mut w_sum = 0.0;
 
-                for (ki, &ky) in OFFSETS.iter().enumerate() {
-                    let sy = y_isize + ky;
-                    if sy < 0 || sy >= h_isize {
-                        continue;
-                    }
-
-                    let neighbor_row_idx = (sy as usize) * w;
-                    let ky_sq_div_50 = OFFSET_SQUARES[ki] * 0.02;
-
-                    for (kj, &kx) in OFFSETS.iter().enumerate() {
-                        let sx = (x as isize) + kx;
-                        if sx < 0 || sx >= w_isize {
+                    for (ki, &ky) in OFFSETS.iter().enumerate() {
+                        let sy = y_isize + ky;
+                        if sy < 0 || sy >= h_isize {
                             continue;
                         }
 
-                        let neighbor_idx = (neighbor_row_idx + sx as usize) * 3;
+                        let neighbor_row_idx = (sy as usize) * w;
+                        let ky_sq_div_50 = OFFSET_SQUARES[ki] * 0.02;
 
-                        let neighbor_y = ycbcr_buffer[neighbor_idx];
-                        let y_diff = (cy - neighbor_y).abs();
+                        for (kj, &kx) in OFFSETS.iter().enumerate() {
+                            let sx = (x as isize) + kx;
+                            if sx < 0 || sx >= w_isize {
+                                continue;
+                            }
 
-                        let val = y_diff * BASE_INV_SIGMA;
-                        let spatial_penalty = OFFSET_SQUARES[kj] * 0.02 + ky_sq_div_50;
+                            let neighbor_idx = (neighbor_row_idx + sx as usize) * 3;
 
-                        let weight = 1.0 / (1.0 + val * val + spatial_penalty);
+                            let neighbor_y = ycbcr_buffer[neighbor_idx];
+                            let y_diff = (cy - neighbor_y).abs();
 
-                        cb_sum += ycbcr_buffer[neighbor_idx + 1] * weight;
-                        cr_sum += ycbcr_buffer[neighbor_idx + 2] * weight;
-                        w_sum += weight;
+                            let val = y_diff * base_inv_sigma;
+                            let spatial_penalty = OFFSET_SQUARES[kj] * 0.02 + ky_sq_div_50;
+
+                            let weight = 1.0 / (1.0 + val * val + spatial_penalty);
+
+                            cb_sum += ycbcr_buffer[neighbor_idx + 1] * weight;
+                            cr_sum += ycbcr_buffer[neighbor_idx + 2] * weight;
+                            w_sum += weight;
+                        }
                     }
-                }
 
-                let (out_cb, out_cr) = if w_sum > 1e-4 {
-                    let inv_w_sum = 1.0 / w_sum;
-                    let filtered_cb = cb_sum * inv_w_sum;
-                    let filtered_cr = cr_sum * inv_w_sum;
+                    let (out_cb, out_cr) = if w_sum > 1e-4 {
+                        let inv_w_sum = 1.0 / w_sum;
+                        let filtered_cb = cb_sum * inv_w_sum;
+                        let filtered_cr = cr_sum * inv_w_sum;
 
-                    let orig_mag_sq = ccb * ccb + ccr * ccr;
-                    let filt_mag_sq = filtered_cb * filtered_cb + filtered_cr * filtered_cr;
+                        let orig_mag_sq = ccb * ccb + ccr * ccr;
+                        let filt_mag_sq = filtered_cb * filtered_cb + filtered_cr * filtered_cr;
 
-                    if filt_mag_sq > orig_mag_sq && orig_mag_sq > 1e-12 {
-                        let scale = (orig_mag_sq / filt_mag_sq).sqrt();
-                        (filtered_cb * scale, filtered_cr * scale)
+                        if filt_mag_sq > orig_mag_sq && orig_mag_sq > 1e-12 {
+                            let scale = (orig_mag_sq / filt_mag_sq).sqrt();
+                            (filtered_cb * scale, filtered_cr * scale)
+                        } else {
+                            (filtered_cb, filtered_cr)
+                        }
                     } else {
-                        (filtered_cb, filtered_cr)
-                    }
-                } else {
-                    (ccb, ccr)
-                };
+                        (ccb, ccr)
+                    };
 
-                let (r, g, b) = yc_to_rgb(cy, out_cb, out_cr);
+                    let (r, g, b) = yc_to_rgb(cy, out_cb, out_cr);
 
-                let o = x * 3;
-                row[o] = r.clamp(0.0, 1.0);
-                row[o + 1] = g.clamp(0.0, 1.0);
-                row[o + 2] = b.clamp(0.0, 1.0);
-            }
-        });
+                    let o = x * 3;
+                    row[o] = r.clamp(0.0, 1.0);
+                    row[o + 1] = g.clamp(0.0, 1.0);
+                    row[o + 2] = b.clamp(0.0, 1.0);
+                }
+            });
+    }
 
-    apply_gentle_detail_enhance(&mut buffer, &ycbcr_buffer, 0.35);
+    if sharpening_amount > 0.0 {
+        apply_gentle_detail_enhance(&mut buffer, &ycbcr_buffer, sharpening_amount);
+    }
 
     *image = DynamicImage::ImageRgb32F(buffer);
 }

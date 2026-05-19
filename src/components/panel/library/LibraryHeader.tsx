@@ -3,15 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Loader2, X, SlidersHorizontal, Check, Star as StarIcon, ChevronUp, ChevronDown } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useLibraryStore } from '../../../store/useLibraryStore';
-import {
-  FilterCriteria,
-  RawStatus,
-  ThumbnailSize,
-  ThumbnailAspectRatio,
-  LibraryViewMode,
-  SortCriteria,
-  SortDirection,
-} from '../../ui/AppProperties';
+import { FilterCriteria, RawStatus, LibraryViewMode, SortCriteria, SortDirection } from '../../ui/AppProperties';
 import { COLOR_LABELS, Color } from '../../../utils/adjustments';
 import Text from '../../ui/Text';
 import { TextColors, TextVariants, TextWeights, TEXT_COLOR_KEYS } from '../../../types/typography';
@@ -355,7 +347,6 @@ export function ViewOptionsDropdown({
     >
       <div className="library-view-options-content flex">
         <div className="library-view-options-section w-1/4 p-2 border-r border-border-color">
-          {/* Thumbnail Sizes */}
           <>
             <Text as="div" variant={TextVariants.small} weight={TextWeights.semibold} className="px-3 py-2 uppercase">
               Thumbnail Size
@@ -384,7 +375,6 @@ export function ViewOptionsDropdown({
             })}
           </>
 
-          {/* Aspect Ratios */}
           <div className="pt-2">
             <>
               <Text as="div" variant={TextVariants.small} weight={TextWeights.semibold} className="px-3 py-2 uppercase">
@@ -415,7 +405,6 @@ export function ViewOptionsDropdown({
             </>
           </div>
 
-          {/* View Modes */}
           <div className="pt-2">
             <>
               <Text as="div" variant={TextVariants.small} weight={TextWeights.semibold} className="px-3 py-2 uppercase">
@@ -462,7 +451,6 @@ export function ViewOptionsDropdown({
         </div>
 
         <div className="library-view-options-section w-2/4 p-2 border-r border-border-color">
-          {/* Rating Filters */}
           <div className="space-y-4">
             <div>
               <Text as="div" variant={TextVariants.small} weight={TextWeights.semibold} className="px-3 py-2 uppercase">
@@ -497,7 +485,6 @@ export function ViewOptionsDropdown({
               })}
             </div>
 
-            {/* RAW Filters */}
             <div>
               <Text as="div" variant={TextVariants.small} weight={TextWeights.semibold} className="px-3 py-2 uppercase">
                 Filter by File Type
@@ -531,7 +518,6 @@ export function ViewOptionsDropdown({
 
           <div className="py-2"></div>
 
-          {/* Color Filters */}
           <div>
             <Text as="div" variant={TextVariants.small} weight={TextWeights.semibold} className="px-3 py-2 uppercase">
               Filter by Color Label
@@ -565,7 +551,6 @@ export function ViewOptionsDropdown({
         </div>
 
         <div className="library-view-options-section w-1/4 p-2">
-          {/* Sorting */}
           <>
             <div className="px-3 py-2 relative flex items-center">
               <Text as="div" variant={TextVariants.small} weight={TextWeights.semibold} className="uppercase">
@@ -575,7 +560,7 @@ export function ViewOptionsDropdown({
                 onClick={() =>
                   setSortCriteria((prev: SortCriteria) => ({
                     ...prev,
-                    order: prev.order === SortDirection.Ascending ? SortDirection.Descening : SortDirection.Ascending,
+                    order: prev.order === SortDirection.Ascending ? SortDirection.Descending : SortDirection.Ascending,
                   }))
                 }
                 data-tooltip={`Sort ${sortCriteria.order === SortDirection.Ascending ? 'Descending' : 'Ascending'}`}

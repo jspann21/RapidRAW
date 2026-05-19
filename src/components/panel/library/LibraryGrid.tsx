@@ -476,7 +476,7 @@ export default function LibraryGrid(props: any) {
     setSortCriteria((prev: any) => {
       if (prev.key === key) {
         if (prev.order === SortDirection.Ascending) {
-          return { ...prev, order: SortDirection.Descening };
+          return { ...prev, order: SortDirection.Descending };
         } else {
           return { key: 'name', order: SortDirection.Ascending };
         }
@@ -503,7 +503,7 @@ export default function LibraryGrid(props: any) {
           />
         )}
         <div
-          key={`${gridSize.width}-${thumbnailSize}-${libraryViewMode}`}
+          key={`${gridSize.width}-${thumbnailSize}-${libraryViewMode}-${sortCriteria.key}-${sortCriteria.order}`}
           style={{ height: gridData.isListView ? gridSize.height - 36 : gridSize.height, width: gridSize.width }}
         >
           <List

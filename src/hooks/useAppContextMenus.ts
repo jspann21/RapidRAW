@@ -940,6 +940,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
 
       const { rootPaths, currentFolderPath, folderTrees, setLibrary } = useLibraryStore.getState();
       const { copiedFilePaths, setProcess } = useProcessStore.getState();
+      const { appSettings, handleSettingsChange } = useSettingsStore.getState();
       const { setUI } = useUIStore.getState();
 
       const targetPath = path || currentFolderPath || rootPaths?.[0];
@@ -1038,6 +1039,28 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           onClick: () => {
             setUI({ folderActionTarget: targetPath, isRenameFolderModalOpen: true });
           },
+        },
+        {
+          label: 'Change Icon',
+          icon: Palette,
+          submenu: ALBUM_ICONS.map((iconDef) => ({
+            label: iconDef.label,
+            icon: iconDef.icon,
+            onClick: () => {
+              if (appSettings) {
+                const currentIcons = appSettings.folderIcons || {};
+                const newIcons = { ...currentIcons };
+
+                if (iconDef.value) {
+                  newIcons[targetPath] = iconDef.value;
+                } else {
+                  delete newIcons[targetPath];
+                }
+
+                handleSettingsChange({ ...appSettings, folderIcons: newIcons });
+              }
+            },
+          })),
         },
         { type: OPTION_SEPARATOR },
         {
@@ -1269,7 +1292,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           ? [
               { type: OPTION_SEPARATOR },
               {
-                label: 'Rename',
+                label: 'Rename Album',
                 icon: FileEdit,
                 onClick: () => setUI({ albumActionTarget: item.id, isRenameAlbumModalOpen: true }),
               },

@@ -20,8 +20,18 @@ export const KEYBIND_SECTIONS: KeybindSection[] = [
 
 export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
   { action: 'open_image', description: 'Open selected image', defaultCombo: ['Enter'], section: 'library' },
-  { action: 'copy_files', description: 'Copy selected file(s)', defaultCombo: ['ctrl', 'shift', 'KeyC'], section: 'library' },
-  { action: 'paste_files', description: 'Paste file(s) to current folder', defaultCombo: ['ctrl', 'shift', 'KeyV'], section: 'library' },
+  {
+    action: 'copy_files',
+    description: 'Copy selected file(s)',
+    defaultCombo: ['ctrl', 'shift', 'KeyC'],
+    section: 'library',
+  },
+  {
+    action: 'paste_files',
+    description: 'Paste file(s) to current folder',
+    defaultCombo: ['ctrl', 'shift', 'KeyV'],
+    section: 'library',
+  },
   { action: 'select_all', description: 'Select all images', defaultCombo: ['ctrl', 'KeyA'], section: 'library' },
   { action: 'delete_selected', description: 'Delete selected file(s)', defaultCombo: ['Delete'], section: 'library' },
   { action: 'preview_prev', description: 'Previous image', defaultCombo: ['ArrowLeft'], section: 'library' },
@@ -41,12 +51,37 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
   { action: 'rate_3', description: 'Star rating: 3', defaultCombo: ['Digit3'], section: 'rating' },
   { action: 'rate_4', description: 'Star rating: 4', defaultCombo: ['Digit4'], section: 'rating' },
   { action: 'rate_5', description: 'Star rating: 5', defaultCombo: ['Digit5'], section: 'rating' },
-  { action: 'color_label_none', description: 'Color label: None', defaultCombo: ['shift', 'Digit0'], section: 'rating' },
+  {
+    action: 'color_label_none',
+    description: 'Color label: None',
+    defaultCombo: ['shift', 'Digit0'],
+    section: 'rating',
+  },
   { action: 'color_label_red', description: 'Color label: Red', defaultCombo: ['shift', 'Digit1'], section: 'rating' },
-  { action: 'color_label_yellow', description: 'Color label: Yellow', defaultCombo: ['shift', 'Digit2'], section: 'rating' },
-  { action: 'color_label_green', description: 'Color label: Green', defaultCombo: ['shift', 'Digit3'], section: 'rating' },
-  { action: 'color_label_blue', description: 'Color label: Blue', defaultCombo: ['shift', 'Digit4'], section: 'rating' },
-  { action: 'color_label_purple', description: 'Color label: Purple', defaultCombo: ['shift', 'Digit5'], section: 'rating' },
+  {
+    action: 'color_label_yellow',
+    description: 'Color label: Yellow',
+    defaultCombo: ['shift', 'Digit2'],
+    section: 'rating',
+  },
+  {
+    action: 'color_label_green',
+    description: 'Color label: Green',
+    defaultCombo: ['shift', 'Digit3'],
+    section: 'rating',
+  },
+  {
+    action: 'color_label_blue',
+    description: 'Color label: Blue',
+    defaultCombo: ['shift', 'Digit4'],
+    section: 'rating',
+  },
+  {
+    action: 'color_label_purple',
+    description: 'Color label: Purple',
+    defaultCombo: ['shift', 'Digit5'],
+    section: 'rating',
+  },
   { action: 'toggle_adjustments', description: 'Toggle Adjustments panel', defaultCombo: ['KeyD'], section: 'panels' },
   { action: 'toggle_crop_panel', description: 'Toggle Crop panel', defaultCombo: ['KeyR'], section: 'panels' },
   { action: 'toggle_masks', description: 'Toggle Masks panel', defaultCombo: ['KeyM'], section: 'panels' },
@@ -57,13 +92,38 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
   { action: 'toggle_export', description: 'Toggle Export panel', defaultCombo: ['KeyE'], section: 'panels' },
   { action: 'undo', description: 'Undo adjustment', defaultCombo: ['ctrl', 'KeyZ'], section: 'editing' },
   { action: 'redo', description: 'Redo adjustment', defaultCombo: ['ctrl', 'KeyY'], section: 'editing' },
-  { action: 'copy_adjustments', description: 'Copy selected adjustments', defaultCombo: ['ctrl', 'KeyC'], section: 'editing' },
-  { action: 'paste_adjustments', description: 'Paste copied adjustments', defaultCombo: ['ctrl', 'KeyV'], section: 'editing' },
-  { action: 'rotate_left', description: 'Rotate 90° counter-clockwise', defaultCombo: ['BracketLeft'], section: 'editing' },
+  {
+    action: 'copy_adjustments',
+    description: 'Copy selected adjustments',
+    defaultCombo: ['ctrl', 'KeyC'],
+    section: 'editing',
+  },
+  {
+    action: 'paste_adjustments',
+    description: 'Paste copied adjustments',
+    defaultCombo: ['ctrl', 'KeyV'],
+    section: 'editing',
+  },
+  {
+    action: 'rotate_left',
+    description: 'Rotate 90° counter-clockwise',
+    defaultCombo: ['BracketLeft'],
+    section: 'editing',
+  },
   { action: 'rotate_right', description: 'Rotate 90° clockwise', defaultCombo: ['BracketRight'], section: 'editing' },
   { action: 'toggle_crop', description: 'Toggle Crop / Straighten', defaultCombo: ['KeyS'], section: 'editing' },
-  { action: 'brush_size_up', description: 'Increase brush size', defaultCombo: ['ctrl', 'ArrowUp'], section: 'editing' },
-  { action: 'brush_size_down', description: 'Decrease brush size', defaultCombo: ['ctrl', 'ArrowDown'], section: 'editing' },
+  {
+    action: 'brush_size_up',
+    description: 'Increase brush size',
+    defaultCombo: ['ctrl', 'ArrowUp'],
+    section: 'editing',
+  },
+  {
+    action: 'brush_size_down',
+    description: 'Decrease brush size',
+    defaultCombo: ['ctrl', 'ArrowDown'],
+    section: 'editing',
+  },
 ];
 
 const symMap: Record<string, string> = {
@@ -111,7 +171,14 @@ export function normalizeCombo(event: KeyboardEvent, osPlatform?: string): strin
   if ((event.ctrlKey || event.metaKey) && !isMacDelete) parts.push('ctrl');
   if (event.shiftKey) parts.push('shift');
   if (event.altKey) parts.push('alt');
-  const code = isMacDelete ? 'Delete' : event.code;
+  let code = isMacDelete ? 'Delete' : event.code;
+  if (/^Numpad[0-9]$/.test(code)) {
+    code = `Digit${code.slice(-1)}`;
+  } else if (code === 'NumpadAdd') {
+    code = 'Equal';
+  } else if (code === 'NumpadSubtract') {
+    code = 'Minus';
+  }
   if (isValidShortcutKey(code)) {
     parts.push(code);
   }

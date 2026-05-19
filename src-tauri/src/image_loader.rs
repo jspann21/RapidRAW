@@ -1,5 +1,5 @@
 use crate::Cursor;
-use crate::app_settings::load_settings;
+use crate::app_settings::{AppSettings, load_settings};
 use crate::app_state::{AppState, LoadedImage};
 use crate::exif_processing;
 use crate::file_management::{parse_virtual_path, read_file_mapped};
@@ -51,18 +51,11 @@ pub fn load_and_composite(
     path: &str,
     adjustments: &Value,
     use_fast_raw_dev: bool,
-    highlight_compression: f32,
-    linear_mode: String,
+    settings: &AppSettings,
     cancel_token: Option<(Arc<AtomicUsize>, usize)>,
 ) -> Result<DynamicImage> {
-    let base_image = load_base_image_from_bytes(
-        base_image,
-        path,
-        use_fast_raw_dev,
-        highlight_compression,
-        linear_mode,
-        cancel_token,
-    )?;
+    let base_image =
+        load_base_image_from_bytes(base_image, path, use_fast_raw_dev, settings, cancel_token)?;
     composite_patches_on_image(&base_image, adjustments)
 }
 
@@ -70,10 +63,27 @@ pub fn load_base_image_from_bytes(
     bytes: &[u8],
     path_for_ext_check: &str,
     use_fast_raw_dev: bool,
-    highlight_compression: f32,
-    linear_mode: String,
+    settings: &AppSettings,
     cancel_token: Option<(Arc<AtomicUsize>, usize)>,
 ) -> Result<DynamicImage> {
+    let highlight_compression = settings.raw_highlight_compression.unwrap_or(2.5);
+    let linear_mode = settings.linear_raw_mode.clone();
+    let color_nr_setting = settings.raw_preprocessing_color_nr.unwrap_or(0.5);
+    let color_nr_amount = if color_nr_setting <= 0.0 {
+        0.0
+    } else {
+        let x = color_nr_setting.clamp(0.01, 1.0);
+        (12.0 / x - 10.0).max(0.1)
+    };
+    let sharpening_amount = settings.raw_preprocessing_sharpening.unwrap_or(0.35);
+    let apply_to_non_raws = settings.apply_preprocessing_to_non_raws.unwrap_or(false);
+
+    crate::exif_processing::persist_exif_if_missing(
+        Path::new(path_for_ext_check),
+        path_for_ext_check,
+        bytes,
+    );
+
     if is_raw_file(path_for_ext_check) {
         match panic::catch_unwind(move || {
             develop_raw_image(
@@ -85,9 +95,13 @@ pub fn load_base_image_from_bytes(
             )
         }) {
             Ok(Ok(mut image)) => {
-                if !use_fast_raw_dev {
+                if !use_fast_raw_dev && (color_nr_amount > 0.0 || sharpening_amount > 0.0) {
                     let start = Instant::now();
-                    remove_raw_artifacts_and_enhance(&mut image);
+                    remove_raw_artifacts_and_enhance(
+                        &mut image,
+                        color_nr_amount,
+                        sharpening_amount,
+                    );
                     let duration = start.elapsed();
                     log::info!(
                         "Raw enhancing for '{}' took {:?}",
@@ -115,7 +129,23 @@ pub fn load_base_image_from_bytes(
             }
         }
     } else {
-        load_image_with_orientation(bytes, cancel_token)
+        let mut image = load_image_with_orientation(bytes, cancel_token)?;
+
+        if apply_to_non_raws
+            && !use_fast_raw_dev
+            && (color_nr_amount > 0.0 || sharpening_amount > 0.0)
+        {
+            let start = Instant::now();
+            remove_raw_artifacts_and_enhance(&mut image, color_nr_amount, sharpening_amount);
+            let duration = start.elapsed();
+            log::info!(
+                "Enhancing non-RAW '{}' took {:?}",
+                path_for_ext_check,
+                duration
+            );
+        }
+
+        Ok(image)
     }
 }
 
@@ -350,8 +380,6 @@ pub async fn load_image(
     };
 
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
-    let highlight_compression = settings.raw_highlight_compression.unwrap_or(2.5);
-    let linear_mode = settings.linear_raw_mode;
 
     let path_clone = source_path_str.clone();
 
@@ -380,8 +408,7 @@ pub async fn load_image(
                             &mmap,
                             &path_clone,
                             false,
-                            highlight_compression,
-                            linear_mode.clone(),
+                            &settings,
                             cancel_token.clone(),
                         )
                         .map_err(|e| e.to_string())?;
@@ -406,8 +433,7 @@ pub async fn load_image(
                             &bytes,
                             &path_clone,
                             false,
-                            highlight_compression,
-                            linear_mode.clone(),
+                            &settings,
                             cancel_token.clone(),
                         )
                         .map_err(|e| e.to_string())?;

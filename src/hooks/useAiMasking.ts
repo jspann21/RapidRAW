@@ -6,6 +6,7 @@ import { debouncedSetHistory, useEditorActions } from './useEditorActions';
 import { Adjustments, AiPatch, MaskContainer, Coord } from '../utils/adjustments';
 import { SubMask } from '../components/panel/right/Masks';
 import { Invokes } from '../components/ui/AppProperties';
+import { useAuth } from '@clerk/react';
 
 const getTransformAdjustments = (adj: Adjustments) => ({
   transformDistortion: adj.transformDistortion,
@@ -31,6 +32,7 @@ export function useAiMasking() {
   const { setAdjustments } = useEditorActions();
   const setEditor = useEditorStore((state) => state.setEditor);
   const pushHistory = useEditorStore((state) => state.pushHistory);
+  const { getToken } = useAuth();
 
   const updateSubMask = useCallback(
     (subMaskId: string, updatedData: any) => {
@@ -58,6 +60,7 @@ export function useAiMasking() {
       if (!patch) return;
 
       const patchDefinition = { ...patch, prompt };
+      const token = await getToken();
 
       debouncedSetHistory.cancel();
       setEditor((state) => ({
@@ -77,6 +80,7 @@ export function useAiMasking() {
           patchDefinition: patchDefinition,
           path: selectedImage.path,
           useFastInpaint: useFastInpaint,
+          token: token || null,
         });
 
         const newPatchData = JSON.parse(newPatchDataJson);
@@ -112,13 +116,14 @@ export function useAiMasking() {
         setEditor({ isGeneratingAi: false });
       }
     },
-    [pushHistory, setEditor],
+    [getToken, pushHistory, setEditor],
   );
 
   const handleQuickErase = useCallback(
     async (subMaskId: string | null, startPoint: Coord, endPoint: Coord) => {
       const { selectedImage, adjustments, isGeneratingAi, patchesSentToBackend } = useEditorStore.getState();
       if (!selectedImage?.path || isGeneratingAi) return;
+      const token = await getToken();
 
       const patchId = adjustments.aiPatches.find((p: AiPatch) =>
         p.subMasks.some((sm: SubMask) => sm.id === subMaskId),
@@ -173,6 +178,7 @@ export function useAiMasking() {
           patchDefinition: { ...patchDefinitionForBackend, prompt: '' },
           path: selectedImage.path,
           useFastInpaint: true,
+          token: token || null,
         });
 
         const newPatchData = JSON.parse(newPatchDataJson);
@@ -210,7 +216,7 @@ export function useAiMasking() {
         setEditor({ isGeneratingAi: false });
       }
     },
-    [pushHistory, setEditor],
+    [getToken, pushHistory, setEditor],
   );
 
   const handleDeleteMaskContainer = useCallback(

@@ -797,8 +797,6 @@ pub async fn batch_export_images(
         let output_folder_path = std::path::Path::new(&output_folder);
         let total_paths = paths.len();
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
-        let highlight_compression = settings.raw_highlight_compression.unwrap_or(2.5);
-        let linear_mode = settings.linear_raw_mode;
 
         let pool_result = rayon::ThreadPoolBuilder::new()
             .num_threads(num_threads)
@@ -985,8 +983,7 @@ pub async fn batch_export_images(
                                 &source_path_str,
                                 &js_adjustments,
                                 false,
-                                highlight_compression,
-                                linear_mode.clone(),
+                                &settings,
                                 None,
                             )
                             .map_err(|e| format!("Failed to load image from mmap: {}", e))?,
@@ -1004,8 +1001,7 @@ pub async fn batch_export_images(
                                     &source_path_str,
                                     &js_adjustments,
                                     false,
-                                    highlight_compression,
-                                    linear_mode.clone(),
+                                    &settings,
                                     None,
                                 )
                                 .map_err(|e| format!("Failed to load image from bytes: {}", e))?
@@ -1264,8 +1260,6 @@ pub async fn estimate_batch_export_size(
     let js_adjustments = metadata.adjustments;
 
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
-    let highlight_compression = settings.raw_highlight_compression.unwrap_or(2.5);
-    let linear_mode = settings.linear_raw_mode;
 
     const ESTIMATE_DIM: u32 = 1280;
 
@@ -1289,15 +1283,9 @@ pub async fn estimate_batch_export_size(
         }
     };
 
-    let original_image = load_base_image_from_bytes(
-        file_slice,
-        &source_path_str,
-        true,
-        highlight_compression,
-        linear_mode.clone(),
-        None,
-    )
-    .map_err(|e| e.to_string())?;
+    let original_image =
+        load_base_image_from_bytes(file_slice, &source_path_str, true, &settings, None)
+            .map_err(|e| e.to_string())?;
 
     let raw_scale_factor = if is_raw {
         crate::raw_processing::get_fast_demosaic_scale_factor(

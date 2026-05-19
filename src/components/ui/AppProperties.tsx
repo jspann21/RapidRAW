@@ -153,7 +153,7 @@ export enum RawStatus {
 
 export enum SortDirection {
   Ascending = 'asc',
-  Descening = 'desc',
+  Descending = 'desc',
 }
 
 export enum Theme {
@@ -197,7 +197,6 @@ export interface AppSettings {
   enableLivePreviews?: boolean;
   livePreviewQuality?: string;
   enableAiTagging?: boolean;
-  enableExifReading?: boolean;
   filterCriteria?: FilterCriteria;
   lastFolderState?: any;
   recentFolders?: string[];
@@ -237,6 +236,7 @@ export interface AppSettings {
   googlePhotosAlbumId?: string | null;
   googlePhotosAlbumTitle?: string;
   openTreeSections?: string[];
+  folderIcons?: Record<string, string>;
 }
 
 export interface BrushSettings {

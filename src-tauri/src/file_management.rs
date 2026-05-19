@@ -62,6 +62,24 @@ fn emit_thumbnail_cache_setup_error(app_handle: &AppHandle, path: &str, reason: 
     );
 }
 
+fn compute_thumbnail_cache_hash(path_str: &str, adjustments_bytes: &[u8]) -> Option<String> {
+    let (source_path, _) = parse_virtual_path(path_str);
+
+    let img_mod_time = fs::metadata(&source_path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(path_str.as_bytes());
+    hasher.update(&img_mod_time.to_le_bytes());
+    hasher.update(adjustments_bytes);
+    Some(hasher.finalize().to_hex().to_string())
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Preset {
     pub id: String,
@@ -272,18 +290,28 @@ pub async fn update_exif_fields(
     tauri::async_runtime::spawn_blocking(move || {
         paths.par_iter().for_each(|path| {
             let original_path = Path::new(&path);
-            let rrexif_path = crate::exif_processing::get_rrexif_path(original_path);
+            let primary_path = crate::exif_processing::get_primary_sidecar_path(original_path);
 
-            let mut exif_data =
-                if let Some(sidecar) = crate::exif_processing::read_rrexif_sidecar(original_path) {
-                    sidecar
+            let temp_metadata: ImageMetadata = if primary_path.exists() {
+                fs::read_to_string(&primary_path)
+                    .ok()
+                    .and_then(|c| serde_json::from_str(&c).ok())
+                    .unwrap_or_default()
+            } else {
+                ImageMetadata::default()
+            };
+
+            let mut exif_data = temp_metadata.exif.unwrap_or_else(|| {
+                if let Some(existing) = crate::exif_processing::read_rrexif_sidecar(original_path) {
+                    existing
                 } else if let Ok(mmap) = read_file_mapped(original_path) {
-                    crate::exif_processing::read_exif_data(path, &mmap)
+                    crate::exif_processing::read_exif_data_from_bytes(path, &mmap)
                 } else if let Ok(bytes) = fs::read(original_path) {
-                    crate::exif_processing::read_exif_data(path, &bytes)
+                    crate::exif_processing::read_exif_data_from_bytes(path, &bytes)
                 } else {
                     HashMap::new()
-                };
+                }
+            });
 
             for (k, v) in &updates {
                 let trimmed = v.trim();
@@ -294,8 +322,18 @@ pub async fn update_exif_fields(
                 }
             }
 
-            if let Ok(json) = serde_json::to_string_pretty(&exif_data) {
-                let _ = std::fs::write(&rrexif_path, json);
+            let mut final_metadata: ImageMetadata = if primary_path.exists() {
+                fs::read_to_string(&primary_path)
+                    .ok()
+                    .and_then(|c| serde_json::from_str(&c).ok())
+                    .unwrap_or_default()
+            } else {
+                ImageMetadata::default()
+            };
+
+            final_metadata.exif = Some(exif_data);
+            if let Ok(json) = serde_json::to_string_pretty(&final_metadata) {
+                let _ = std::fs::write(&primary_path, json);
             }
         });
         Ok(())
@@ -1114,8 +1152,6 @@ pub fn generate_thumbnail_data(
             hit
         } else {
             let settings = load_settings(app_handle.clone()).unwrap_or_default();
-            let highlight_compression = settings.raw_highlight_compression.unwrap_or(2.5);
-            let linear_mode = settings.linear_raw_mode;
             let mut raw_scale_factor = 1.0f32;
 
             let composite_image = if let Some(img) = preloaded_image {
@@ -1150,8 +1186,7 @@ pub fn generate_thumbnail_data(
                     &source_path_str,
                     &adjustments,
                     true,
-                    highlight_compression,
-                    linear_mode.clone(),
+                    &settings,
                     None,
                 )?;
 
@@ -1307,8 +1342,6 @@ pub fn generate_thumbnail_data(
     }
 
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
-    let highlight_compression = settings.raw_highlight_compression.unwrap_or(2.5);
-    let linear_mode = settings.linear_raw_mode;
 
     let mut final_image = if let Some(img) = preloaded_image {
         image_loader::composite_patches_on_image(img, &adjustments)?
@@ -1319,8 +1352,7 @@ pub fn generate_thumbnail_data(
                 &source_path_str,
                 &adjustments,
                 true,
-                highlight_compression,
-                linear_mode.clone(),
+                &settings,
                 None,
             )?,
             Err(e) => {
@@ -1331,8 +1363,7 @@ pub fn generate_thumbnail_data(
                     &source_path_str,
                     &adjustments,
                     true,
-                    highlight_compression,
-                    linear_mode.clone(),
+                    &settings,
                     None,
                 )?
             }
@@ -1378,38 +1409,24 @@ fn generate_single_thumbnail_and_cache(
     force_regenerate: bool,
     app_handle: &AppHandle,
 ) -> Option<(String, u8)> {
-    let (source_path, sidecar_path) = parse_virtual_path(path_str);
+    let (_, sidecar_path) = parse_virtual_path(path_str);
 
-    let img_mod_time = fs::metadata(source_path)
-        .ok()?
-        .modified()
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_secs();
-
-    let (sidecar_mod_time, rating) = if let Ok(content) = fs::read_to_string(&sidecar_path) {
-        let mod_time = fs::metadata(&sidecar_path)
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let rating_val = serde_json::from_str::<ImageMetadata>(&content)
-            .ok()
-            .map(|m| m.rating)
-            .unwrap_or(0);
-        (mod_time, rating_val)
+    let (rating, adjustments_bytes) = if let Ok(content) = fs::read_to_string(&sidecar_path) {
+        if let Ok(meta) = serde_json::from_str::<ImageMetadata>(&content) {
+            (
+                meta.rating,
+                serde_json::to_vec(&meta.adjustments).unwrap_or_default(),
+            )
+        } else {
+            (0, Vec::new())
+        }
     } else {
-        (0, 0)
+        (0, Vec::new())
     };
 
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(path_str.as_bytes());
-    hasher.update(&img_mod_time.to_le_bytes());
-    hasher.update(&sidecar_mod_time.to_le_bytes());
-    let hash = hasher.finalize();
-    let cache_filename = format!("{}.jpg", hash.to_hex());
+    let cache_hash = compute_thumbnail_cache_hash(path_str, &adjustments_bytes)?;
+
+    let cache_filename = format!("{}.jpg", cache_hash);
     let cache_path = thumb_cache_dir.join(cache_filename);
 
     if !force_regenerate
@@ -2205,8 +2222,6 @@ pub async fn apply_auto_adjustments_to_paths(
 
     tauri::async_runtime::spawn_blocking(move || {
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
-        let highlight_compression = settings.raw_highlight_compression.unwrap_or(2.5);
-        let linear_mode = settings.linear_raw_mode;
         let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
         let create_xmp_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
 
@@ -2237,8 +2252,7 @@ pub async fn apply_auto_adjustments_to_paths(
                     &file_bytes,
                     &source_path_str,
                     true,
-                    highlight_compression,
-                    linear_mode.clone(),
+                    &settings,
                     None,
                 )
                 .map_err(|e| e.to_string())?;
@@ -2928,32 +2942,19 @@ pub fn get_thumb_cache_dir(app_handle: &AppHandle) -> Result<PathBuf, String> {
 }
 
 pub fn get_cache_key_hash(path_str: &str) -> Option<String> {
-    let (source_path, sidecar_path) = parse_virtual_path(path_str);
+    let (_, sidecar_path) = parse_virtual_path(path_str);
 
-    let img_mod_time = fs::metadata(source_path)
-        .ok()?
-        .modified()
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_secs();
-
-    let sidecar_mod_time = if let Ok(meta) = fs::metadata(&sidecar_path) {
-        meta.modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
+    let adjustments_bytes = if let Ok(content) = fs::read_to_string(&sidecar_path) {
+        if let Ok(meta) = serde_json::from_str::<ImageMetadata>(&content) {
+            serde_json::to_vec(&meta.adjustments).unwrap_or_default()
+        } else {
+            Vec::new()
+        }
     } else {
-        0
+        Vec::new()
     };
 
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(path_str.as_bytes());
-    hasher.update(&img_mod_time.to_le_bytes());
-    hasher.update(&sidecar_mod_time.to_le_bytes());
-    let hash = hasher.finalize();
-    Some(hash.to_hex().to_string())
+    compute_thumbnail_cache_hash(path_str, &adjustments_bytes)
 }
 
 pub fn get_cached_or_generate_thumbnail_image(
