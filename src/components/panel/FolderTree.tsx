@@ -26,6 +26,7 @@ import {
 import clsx from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useMemo, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import Text from '../ui/Text';
 import { TEXT_COLOR_KEYS, TextColors, TextVariants, TextWeights } from '../../types/typography';
@@ -126,6 +127,8 @@ const getAutoExpandedPaths = (node: FolderTree, paths: Set<string>) => {
 };
 
 function SectionHeader({ title, isOpen, onToggle }: { title: string; isOpen: boolean; onToggle: () => void }) {
+  const { t } = useTranslation();
+
   return (
     <Text
       as="div"
@@ -133,7 +136,11 @@ function SectionHeader({ title, isOpen, onToggle }: { title: string; isOpen: boo
       weight={TextWeights.bold}
       className="flex items-center w-full px-1 py-1.5 cursor-pointer group"
       onClick={onToggle}
-      data-tooltip={isOpen ? `Collapse ${title}` : `Expand ${title}`}
+      data-tooltip={
+        isOpen
+          ? t('library.folders.collapseSection', { section: title })
+          : t('library.folders.expandSection', { section: title })
+      }
     >
       <div className="p-0.5 rounded-md transition-colors">
         {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -208,7 +215,7 @@ function AlbumTreeNode({
   const isExpanded = expandedGroups.has(item.id);
   const isSelected = item.id === selectedAlbumId;
 
-  let ItemIcon = isGroup ? (isExpanded ? FolderOpen : Folder) : AlbumIcon;
+  let ItemIcon: any = isGroup ? (isExpanded ? FolderOpen : Folder) : AlbumIcon;
   if (item.icon && ALBUM_ICONS[item.icon]) {
     ItemIcon = ALBUM_ICONS[item.icon];
   }
@@ -373,7 +380,7 @@ function TreeNode({
   };
 
   const currentFolderIconKey = folderIcons[node.path];
-  let ResolvedIcon = isExpanded ? FolderOpen : Folder;
+  let ResolvedIcon: any = isExpanded ? FolderOpen : Folder;
   if (currentFolderIconKey && ALBUM_ICONS[currentFolderIconKey]) {
     ResolvedIcon = ALBUM_ICONS[currentFolderIconKey];
   }
@@ -507,6 +514,7 @@ export default function FolderTree({
   style,
   isInstantTransition,
 }: FolderTreeProps) {
+  const { t } = useTranslation();
   const { appSettings, handleSettingsChange } = useSettingsStore();
   const {
     folderTrees,
@@ -514,6 +522,7 @@ export default function FolderTree({
     rootPaths,
     expandedFolders,
     isTreeLoading: isLoading,
+    pinnedFolderTrees,
     draggedImagePaths,
     dragTargetFolderPath,
     albumTree,
@@ -566,6 +575,13 @@ export default function FolderTree({
     return folderTrees.map((tree: any) => filterTree(tree, trimmedQuery)).filter((t: any) => t !== null);
   }, [folderTrees, trimmedQuery, isSearching]);
 
+  const filteredPinnedTrees = useMemo(() => {
+    if (!isSearching) return pinnedFolderTrees;
+    return pinnedFolderTrees
+      .map((pinnedTree: any) => filterTree(pinnedTree, trimmedQuery))
+      .filter((t: any): t is FolderTree => t !== null);
+  }, [pinnedFolderTrees, trimmedQuery, isSearching]);
+
   const visibleRecentFolders = useMemo(() => {
     if (!showRecentFolders) return [];
     const rootSet = new Set(rootPaths.map(normalizeFolderPath));
@@ -584,8 +600,9 @@ export default function FolderTree({
     if (!isSearching) return new Set<string>();
     const newExpanded = new Set<string>();
     filteredTrees.forEach((t: any) => getAutoExpandedPaths(t, newExpanded));
+    filteredPinnedTrees.forEach((pinned: any) => getAutoExpandedPaths(pinned, newExpanded));
     return newExpanded;
-  }, [isSearching, filteredTrees]);
+  }, [isSearching, filteredTrees, filteredPinnedTrees]);
 
   const effectiveExpandedFolders = useMemo(() => {
     return new Set([...expandedFolders, ...searchAutoExpandedFolders]);
@@ -593,10 +610,16 @@ export default function FolderTree({
 
   useEffect(() => {
     if (isSearching && appSettings) {
+      const hasPinnedResults = filteredPinnedTrees && filteredPinnedTrees.length > 0;
       const hasBaseResults = filteredTrees && filteredTrees.length > 0;
 
       let newSections = [...openSections];
       let changed = false;
+
+      if (hasPinnedResults && !newSections.includes('pinned')) {
+        newSections.push('pinned');
+        changed = true;
+      }
 
       if (hasBaseResults && !newSections.includes('current')) {
         newSections.push('current');
@@ -607,10 +630,12 @@ export default function FolderTree({
         handleSettingsChange({ ...appSettings, openTreeSections: newSections });
       }
     }
-  }, [isSearching, filteredTrees, openSections, handleSettingsChange, appSettings]);
+  }, [isSearching, filteredTrees, filteredPinnedTrees, openSections, handleSettingsChange, appSettings]);
 
+  const isPinnedOpen = openSections.includes('pinned');
   const isCurrentOpen = openSections.includes('current');
   const isAlbumsOpen = openSections.includes('albums');
+  const hasVisiblePinnedTrees = filteredPinnedTrees && filteredPinnedTrees.length > 0;
 
   const hasVisibleRecentFolders = visibleRecentFolders.length > 0;
   const hasActiveImageDrag = draggedImagePaths.length > 0;
@@ -630,7 +655,7 @@ export default function FolderTree({
         <button
           className="absolute top-1/2 -translate-y-1/2 right-1 w-6 h-10 hover:bg-card-active rounded-md flex items-center justify-center z-30"
           onClick={() => setIsVisible(true)}
-          data-tooltip="Expand"
+          data-tooltip={t('library.folders.tooltips.expand')}
         >
           <ChevronRight size={16} />
         </button>
@@ -649,7 +674,7 @@ export default function FolderTree({
                     transition={{ duration: 0.2, ease: 'easeInOut' }}
                     className="bg-surface rounded-md hover:bg-card-active flex items-center justify-center shrink-0 overflow-hidden transition-colors"
                     onClick={() => setIsVisible(false)}
-                    data-tooltip="Collapse"
+                    data-tooltip={t('library.folders.tooltips.collapse')}
                   >
                     <ChevronLeft size={17.5} className="text-text-secondary shrink-0" />
                   </motion.button>
@@ -659,7 +684,7 @@ export default function FolderTree({
                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" />
                 <input
                   type="text"
-                  placeholder="Search folders..."
+                  placeholder={t('library.folders.searchPlaceholder')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full bg-surface border border-transparent rounded-md pl-9 pr-8 py-2 text-sm focus:outline-hidden"
@@ -668,7 +693,7 @@ export default function FolderTree({
                   <button
                     onClick={() => setSearchQuery('')}
                     className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-card-active"
-                    data-tooltip="Clear search"
+                    data-tooltip={t('library.folders.tooltips.clearSearch')}
                   >
                     <X size={16} className="text-text-secondary" />
                   </button>
@@ -678,10 +703,77 @@ export default function FolderTree({
           </div>
 
           <div className="flex-1 overflow-y-auto" onContextMenu={handleEmptyAreaContextMenu}>
+            {hasVisiblePinnedTrees && (
+              <>
+                <div>
+                  <SectionHeader
+                    title={t('library.folders.sections.pinned')}
+                    isOpen={isPinnedOpen}
+                    onToggle={() => toggleSection('pinned')}
+                  />
+                </div>
+                <AnimatePresence initial={false}>
+                  {isPinnedOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: 'easeInOut' }}
+                      className="overflow-hidden"
+                    >
+                      <div className="pt-1 pb-2">
+                        <AnimatePresence>
+                          {filteredPinnedTrees.map((pinnedTree, index) => (
+                            <motion.div
+                              key={pinnedTree.path}
+                              animate="visible"
+                              custom={{ index, total: filteredPinnedTrees.length }}
+                              exit="exit"
+                              initial={isInstantTransition ? 'visible' : 'hidden'}
+                              layout={isInstantTransition ? false : 'position'}
+                              variants={{
+                                hidden: { opacity: 0, x: -15 },
+                                visible: ({ index, total }: VisibleProps) => ({
+                                  opacity: 1,
+                                  x: 0,
+                                  transition: { duration: 0.25, delay: total < 8 ? index * 0.05 : 0 },
+                                }),
+                                exit: { opacity: 0, x: -15, transition: { duration: 0.2 } },
+                              }}
+                            >
+                              <TreeNode
+                                expandedFolders={effectiveExpandedFolders}
+                                isExpanded={effectiveExpandedFolders.has(pinnedTree.path)}
+                                node={pinnedTree}
+                                onContextMenu={onContextMenu}
+                                onFolderSelect={onFolderSelect}
+                                onToggle={onToggleFolder}
+                                selectedPath={selectedPath}
+                                selectAsSessionRoot={false}
+                                showImageCounts={showImageCounts && isHovering}
+                                isInstantTransition={isInstantTransition}
+                                dragTargetFolderPath={dragTargetFolderPath}
+                                hasActiveImageDrag={hasActiveImageDrag}
+                                folderIcons={folderIcons}
+                              />
+                            </motion.div>
+                          ))}
+                        </AnimatePresence>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </>
+            )}
+
             {!isSearching && (
               <>
                 <div>
-                  <SectionHeader title="Albums" isOpen={isAlbumsOpen} onToggle={() => toggleSection('albums')} />
+                  <SectionHeader
+                    title={t('library.folders.sections.albums')}
+                    isOpen={isAlbumsOpen}
+                    onToggle={() => toggleSection('albums')}
+                  />
                 </div>
                 <AnimatePresence>
                   {isAlbumsOpen && (
@@ -721,7 +813,7 @@ export default function FolderTree({
                         {albumTree.length === 0 && (
                           <motion.div layout="position">
                             <Text variant={TextVariants.small} className="p-2 text-center">
-                              Right-click to create an album.
+                              {t('library.folders.albumsEmpty')}
                             </Text>
                           </motion.div>
                         )}
@@ -735,7 +827,11 @@ export default function FolderTree({
             {filteredTrees && filteredTrees.length > 0 && (
               <>
                 <div>
-                  <SectionHeader title="Folders" isOpen={isCurrentOpen} onToggle={() => toggleSection('current')} />
+                  <SectionHeader
+                    title={t('library.folders.sections.folders')}
+                    isOpen={isCurrentOpen}
+                    onToggle={() => toggleSection('current')}
+                  />
                 </div>
                 <AnimatePresence initial={false}>
                   {isCurrentOpen && (
@@ -806,7 +902,7 @@ export default function FolderTree({
                                 <div className="relative w-4 h-4 ml-1 shrink-0 flex items-center justify-center">
                                   <Plus size={16} />
                                 </div>
-                                <span className="select-none">Add folder</span>
+                                <span className="select-none">{t('library.folders.addFolder')}</span>
                               </Text>
                             </motion.div>
                           )}
@@ -818,16 +914,16 @@ export default function FolderTree({
               </>
             )}
 
-            {!filteredTrees?.length && !hasVisibleRecentFolders && isSearching && (
-              <Text className="p-2 text-center">No folders found.</Text>
+            {!filteredTrees?.length && !hasVisiblePinnedTrees && !hasVisibleRecentFolders && isSearching && (
+              <Text className="p-2 text-center">{t('library.folders.noFoldersFound')}</Text>
             )}
 
             {folderTrees.length === 0 && !hasVisibleRecentFolders && !isSearching && (
               <div className="pt-1">
                 {isLoading ? (
-                  <Text className="animate-pulse p-2">Loading folders...</Text>
+                  <Text className="animate-pulse p-2">{t('library.folders.loading')}</Text>
                 ) : (
-                  <Text className="p-2">Open a folder to see its structure.</Text>
+                  <Text className="p-2">{t('library.folders.openFolderInstruction')}</Text>
                 )}
               </div>
             )}

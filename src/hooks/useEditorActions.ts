@@ -13,6 +13,7 @@ import {
   COPYABLE_ADJUSTMENT_KEYS,
   PasteMode,
   normalizeLoadedAdjustments,
+  LensAdjustment,
 } from '../utils/adjustments';
 import { calculateCenteredCrop } from '../utils/cropUtils';
 import { Invokes } from '../components/ui/AppProperties';
@@ -250,7 +251,10 @@ export function useEditorActions() {
 
       if (!copiedAdjustments || !appSettings) return;
 
-      const { mode, includedAdjustments } = appSettings.copyPasteSettings;
+      const { mode, includedAdjustments } = appSettings.copyPasteSettings ?? {
+        mode: PasteMode.Merge,
+        includedAdjustments: COPYABLE_ADJUSTMENT_KEYS,
+      };
       const adjustmentsToApply: Partial<Adjustments> = {};
 
       for (const key of includedAdjustments) {
@@ -263,6 +267,12 @@ export function useEditorActions() {
           } else {
             adjustmentsToApply[key as keyof Adjustments] = value;
           }
+        }
+      }
+
+      if (includedAdjustments.includes(LensAdjustment.LensMaker)) {
+        if (!adjustmentsToApply.lensMaker) {
+          adjustmentsToApply.lensDistortionParams = null;
         }
       }
 
@@ -317,6 +327,27 @@ export function useEditorActions() {
           : null;
         if (nextLibraryActive) {
           setLibrary({ libraryActiveAdjustments: nextLibraryActive.adjustments });
+        }
+
+        if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
+          const metadata = await invoke<{ adjustments?: Partial<Adjustments> }>(Invokes.LoadMetadata, {
+            path: selectedImage.path,
+          });
+          if (metadata.adjustments) {
+            const {
+              lensMaker = null,
+              lensModel = null,
+              lensDistortionParams = null,
+            } = metadata.adjustments;
+            useEditorStore.getState().setEditor((state) => ({
+              adjustments: {
+                ...state.adjustments,
+                lensMaker,
+                lensModel,
+                lensDistortionParams,
+              },
+            }));
+          }
         }
       } catch (err) {
         toast.error(`Failed to paste adjustments: ${err}`);

@@ -22,6 +22,7 @@ interface LibraryState {
   currentFolderPath: string | null;
   expandedFolders: Set<string>;
   folderTrees: any[];
+  pinnedFolderTrees: any[];
 
   // Albums
   albumTree: AlbumItem[];
@@ -62,6 +63,7 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   currentFolderPath: null,
   expandedFolders: new Set<string>(),
   folderTrees: [],
+  pinnedFolderTrees: [],
 
   albumTree: [],
   activeAlbumId: null,
@@ -83,7 +85,17 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   isTreeLoading: false,
   isViewLoading: false,
   libraryScrollTop: 0,
-  listColumnWidths: { thumbnail: 4, name: 32, date: 30, rating: 15, color: 15 },
+  listColumnWidths: {
+    thumbnail: 4,
+    name: 20,
+    date: 15,
+    rating: 8,
+    color: 8,
+    shutter: 10,
+    aperture: 10,
+    iso: 10,
+    focal: 15,
+  },
 
   setLibrary: (updater) => set((state) => (typeof updater === 'function' ? updater(state) : updater)),
 
