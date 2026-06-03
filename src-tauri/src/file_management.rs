@@ -121,6 +121,96 @@ pub struct PresetFile {
     pub presets: Vec<PresetItem>,
 }
 
+const MAX_PRESET_NAME_LEN: usize = 120;
+const MAX_PRESET_ADJUSTMENTS_BYTES: usize = 64 * 1024;
+const MAX_PRESET_JSON_DEPTH: usize = 12;
+const MAX_PRESET_OBJECT_KEYS: usize = 200;
+const MAX_PRESET_ARRAY_ITEMS: usize = 256;
+
+pub fn validate_preset_label(label: &str, field: &str) -> Result<(), String> {
+    let trimmed = label.trim();
+    if trimmed.is_empty() {
+        return Err(format!("Preset {} cannot be empty.", field));
+    }
+    if trimmed.chars().count() > MAX_PRESET_NAME_LEN {
+        return Err(format!("Preset {} is too long.", field));
+    }
+    Ok(())
+}
+
+fn validate_json_shape(value: &Value, depth: usize) -> Result<(), String> {
+    if depth > MAX_PRESET_JSON_DEPTH {
+        return Err("Preset adjustments are too deeply nested.".to_string());
+    }
+
+    match value {
+        Value::Object(map) => {
+            if map.len() > MAX_PRESET_OBJECT_KEYS {
+                return Err("Preset adjustments contain too many object keys.".to_string());
+            }
+            for nested in map.values() {
+                validate_json_shape(nested, depth + 1)?;
+            }
+        }
+        Value::Array(items) => {
+            if items.len() > MAX_PRESET_ARRAY_ITEMS {
+                return Err("Preset adjustments contain too many array items.".to_string());
+            }
+            for nested in items {
+                validate_json_shape(nested, depth + 1)?;
+            }
+        }
+        Value::String(text) if text.len() > 4096 => {
+            return Err("Preset adjustments contain an oversized string.".to_string());
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+pub fn validate_preset_adjustments(adjustments: &Value) -> Result<(), String> {
+    let object = adjustments
+        .as_object()
+        .ok_or_else(|| "Preset adjustments must be a JSON object.".to_string())?;
+
+    let serialized_size = serde_json::to_vec(adjustments)
+        .map_err(|e| e.to_string())?
+        .len();
+    if serialized_size > MAX_PRESET_ADJUSTMENTS_BYTES {
+        return Err("Preset adjustments are too large.".to_string());
+    }
+
+    let allowed_keys = all_available_adjustments();
+    for key in object.keys() {
+        if !allowed_keys.contains(key) {
+            return Err(format!("Preset adjustment key is not supported: {}", key));
+        }
+    }
+
+    validate_json_shape(adjustments, 0)
+}
+
+fn validate_preset_item(item: &PresetItem) -> Result<(), String> {
+    match item {
+        PresetItem::Preset(preset) => {
+            validate_preset_label(&preset.name, "name")?;
+            validate_preset_adjustments(&preset.adjustments)
+        }
+        PresetItem::Folder(folder) => {
+            validate_preset_label(&folder.name, "folder name")?;
+            if folder.children.len() > MAX_PRESET_ARRAY_ITEMS {
+                return Err("Preset folder contains too many presets.".to_string());
+            }
+            for child in &folder.children {
+                validate_preset_label(&child.name, "name")?;
+                validate_preset_adjustments(&child.adjustments)?;
+            }
+            Ok(())
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ReadFileError {
     Io(std::io::Error),
@@ -2795,6 +2885,12 @@ pub fn handle_import_presets_from_file(
         fs::read_to_string(file_path).map_err(|e| format!("Failed to read preset file: {}", e))?;
     let imported_preset_file: PresetFile = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse preset file: {}", e))?;
+    if imported_preset_file.presets.len() > MAX_PRESET_ARRAY_ITEMS {
+        return Err("Preset file contains too many presets.".to_string());
+    }
+    for item in &imported_preset_file.presets {
+        validate_preset_item(item)?;
+    }
 
     let mut current_presets = load_presets(app_handle.clone())?;
 
@@ -2868,6 +2964,8 @@ pub fn handle_import_legacy_presets_from_file(
     };
 
     let converted_preset = preset_converter::convert_xmp_to_preset(&xmp_content)?;
+    validate_preset_label(&converted_preset.name, "name")?;
+    validate_preset_adjustments(&converted_preset.adjustments)?;
 
     let mut current_presets = load_presets(app_handle.clone())?;
 
@@ -2906,6 +3004,12 @@ pub fn handle_export_presets_to_file(
     app_handle: AppHandle,
 ) -> Result<(), String> {
     ensure_path_in_allowed_roots(&app_handle, Path::new(&file_path), "Export presets to file")?;
+    if presets_to_export.len() > MAX_PRESET_ARRAY_ITEMS {
+        return Err("Too many presets selected for export.".to_string());
+    }
+    for item in &presets_to_export {
+        validate_preset_item(item)?;
+    }
     let preset_file = ExportPresetFile {
         creator: "Anonymous",
         presets: &presets_to_export,
@@ -2925,6 +3029,9 @@ pub fn save_community_preset(
     include_crop_transform: Option<bool>,
     preset_type: Option<String>,
 ) -> Result<(), String> {
+    validate_preset_label(&name, "name")?;
+    validate_preset_adjustments(&adjustments)?;
+
     let mut current_presets = load_presets(app_handle.clone())?;
 
     let community_folder_name = "Community";

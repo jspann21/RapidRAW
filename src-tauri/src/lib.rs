@@ -75,7 +75,9 @@ use crate::cache_utils::{
     calculate_transform_hash, calculate_visual_hash,
 };
 use crate::exif_processing::{read_exposure_time_secs, read_iso};
-use crate::file_management::{parse_virtual_path, read_file_mapped};
+use crate::file_management::{
+    parse_virtual_path, read_file_mapped, validate_preset_adjustments, validate_preset_label,
+};
 use crate::formats::is_raw_file;
 use crate::image_loader::{
     composite_patches_on_image, load_and_composite, load_base_image_from_bytes,
@@ -126,6 +128,9 @@ pub struct CommunityPreset {
     #[serde(rename = "includeCropTransform")]
     pub include_crop_transform: Option<bool>,
 }
+
+const MAX_COMMUNITY_MANIFEST_BYTES: usize = 1024 * 1024;
+const MAX_COMMUNITY_PRESETS: usize = 200;
 
 #[derive(Serialize)]
 struct LutParseResult {
@@ -1207,10 +1212,24 @@ async fn fetch_community_presets() -> Result<Vec<CommunityPreset>, String> {
         return Err(format!("GitHub returned an error: {}", response.status()));
     }
 
-    let presets: Vec<CommunityPreset> = response
-        .json()
+    let manifest_bytes = response
+        .bytes()
         .await
+        .map_err(|e| format!("Failed to read manifest.json: {}", e))?;
+    if manifest_bytes.len() > MAX_COMMUNITY_MANIFEST_BYTES {
+        return Err("Community preset manifest is too large.".to_string());
+    }
+
+    let presets: Vec<CommunityPreset> = serde_json::from_slice(&manifest_bytes)
         .map_err(|e| format!("Failed to parse manifest.json: {}", e))?;
+    if presets.len() > MAX_COMMUNITY_PRESETS {
+        return Err("Community preset manifest contains too many presets.".to_string());
+    }
+    for preset in &presets {
+        validate_preset_label(&preset.name, "name")?;
+        validate_preset_label(&preset.creator, "creator")?;
+        validate_preset_adjustments(&preset.adjustments)?;
+    }
 
     Ok(presets)
 }
@@ -1229,6 +1248,15 @@ async fn generate_all_community_previews(
     const PROCESSING_DIM: u32 = TILE_DIM * 2;
 
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
+
+    if presets.len() > MAX_COMMUNITY_PRESETS {
+        return Err("Too many community presets requested for preview.".to_string());
+    }
+    for preset in &presets {
+        validate_preset_label(&preset.name, "name")?;
+        validate_preset_label(&preset.creator, "creator")?;
+        validate_preset_adjustments(&preset.adjustments)?;
+    }
 
     let mut base_thumbnails: Vec<(DynamicImage, bool, f32)> = Vec::new();
     for image_path in image_paths.iter() {
