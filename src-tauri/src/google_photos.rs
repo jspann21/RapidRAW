@@ -17,12 +17,14 @@ use tauri::{AppHandle, Manager};
 
 use crate::app_settings::{AppSettings, load_settings, save_settings};
 use crate::file_management::parse_virtual_path;
+use crate::secure_storage;
 
 const AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const PHOTOS_API: &str = "https://photoslibrary.googleapis.com/v1";
 const UPLOAD_URL: &str = "https://photoslibrary.googleapis.com/v1/uploads";
 const GOOGLE_PHOTOS_REAUTH_REQUIRED_PREFIX: &str = "GOOGLE_PHOTOS_REAUTH_REQUIRED:";
+const GOOGLE_PHOTOS_TOKEN_KEY: &str = "google_photos_tokens";
 const GOOGLE_PHOTOS_SCOPES: &[&str] = &[
     "https://www.googleapis.com/auth/photoslibrary.appendonly",
     "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
@@ -206,23 +208,35 @@ fn sync_index_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn read_token(app_handle: &AppHandle) -> Result<Option<GooglePhotosToken>, String> {
+    if let Some(content) = secure_storage::get_secret(GOOGLE_PHOTOS_TOKEN_KEY)? {
+        return serde_json::from_str(&content)
+            .map(Some)
+            .map_err(|e| format!("Failed to read Google Photos token: {}", e));
+    }
+
     let path = token_path(app_handle)?;
     if !path.exists() {
         return Ok(None);
     }
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&content)
-        .map(Some)
-        .map_err(|e| format!("Failed to read Google Photos token: {}", e))
+    let token = serde_json::from_str::<GooglePhotosToken>(&content)
+        .map_err(|e| format!("Failed to read Google Photos token: {}", e))?;
+    write_token(app_handle, &token)?;
+    Ok(Some(token))
 }
 
 fn write_token(app_handle: &AppHandle, token: &GooglePhotosToken) -> Result<(), String> {
     let path = token_path(app_handle)?;
     let content = serde_json::to_string_pretty(token).map_err(|e| e.to_string())?;
-    fs::write(path, content).map_err(|e| e.to_string())
+    secure_storage::set_secret(GOOGLE_PHOTOS_TOKEN_KEY, &content)?;
+    if path.exists() {
+        fs::remove_file(path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 fn clear_token(app_handle: &AppHandle) -> Result<(), String> {
+    secure_storage::delete_secret(GOOGLE_PHOTOS_TOKEN_KEY)?;
     let path = token_path(app_handle)?;
     if path.exists() {
         fs::remove_file(path).map_err(|e| e.to_string())?;
@@ -714,10 +728,7 @@ pub fn google_photos_get_sync_index(
 
 #[tauri::command]
 pub fn google_photos_disconnect(app_handle: AppHandle) -> Result<(), String> {
-    let token_path = token_path(&app_handle)?;
-    if token_path.exists() {
-        fs::remove_file(token_path).map_err(|e| e.to_string())?;
-    }
+    clear_token(&app_handle)?;
     let mut settings = load_settings(app_handle.clone())?;
     settings.google_photos_integration_enabled = Some(false);
     save_settings(settings, app_handle)?;

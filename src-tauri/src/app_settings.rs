@@ -7,6 +7,9 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager};
 
 use crate::app_state::AppState;
+use crate::secure_storage;
+
+const GOOGLE_PHOTOS_CLIENT_SECRET_KEY: &str = "google_photos_client_secret";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -446,7 +449,7 @@ pub struct AppSettings {
     pub google_photos_integration_enabled: Option<bool>,
     #[serde(default)]
     pub google_photos_client_id: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub google_photos_client_secret: Option<String>,
     #[serde(default)]
     pub google_photos_album_id: Option<String>,
@@ -591,6 +594,24 @@ pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     let default_included = default_included_adjustments();
     let mut settings_modified = false;
 
+    if let Some(secret) = settings
+        .google_photos_client_secret
+        .as_deref()
+        .map(str::trim)
+        .filter(|secret| !secret.is_empty())
+        .map(ToString::to_string)
+    {
+        secure_storage::set_secret(GOOGLE_PHOTOS_CLIENT_SECRET_KEY, &secret)?;
+        settings.google_photos_client_secret = None;
+        settings_modified = true;
+    }
+
+    if settings.google_photos_client_secret.is_none()
+        && let Some(secret) = secure_storage::get_secret(GOOGLE_PHOTOS_CLIENT_SECRET_KEY)?
+    {
+        settings.google_photos_client_secret = Some(secret);
+    }
+
     if settings.root_folders.is_empty()
         && let Some(last) = &settings.last_root_path
     {
@@ -608,8 +629,14 @@ pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
         settings_modified = true;
     }
 
-    if settings.open_tree_sections.iter().any(|section| section == "pinned") {
-        settings.open_tree_sections.retain(|section| section != "pinned");
+    if settings
+        .open_tree_sections
+        .iter()
+        .any(|section| section == "pinned")
+    {
+        settings
+            .open_tree_sections
+            .retain(|section| section != "pinned");
         if settings.open_tree_sections.is_empty() {
             settings.open_tree_sections = default_open_tree_sections();
         }
@@ -645,16 +672,31 @@ pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
         }
     }
 
-    if settings_modified && let Ok(json_string) = serde_json::to_string_pretty(&settings) {
-        let _ = fs::write(&path, json_string);
+    if settings_modified {
+        let mut sanitized_settings = settings.clone();
+        sanitized_settings.google_photos_client_secret = None;
+        if let Ok(json_string) = serde_json::to_string_pretty(&sanitized_settings) {
+            let _ = fs::write(&path, json_string);
+        }
     }
 
     Ok(settings)
 }
 
 #[tauri::command]
-pub fn save_settings(settings: AppSettings, app_handle: AppHandle) -> Result<(), String> {
+pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result<(), String> {
     let path = get_settings_path(&app_handle)?;
+    if let Some(secret) = settings
+        .google_photos_client_secret
+        .as_deref()
+        .map(str::trim)
+        .filter(|secret| !secret.is_empty())
+        .map(ToString::to_string)
+    {
+        secure_storage::set_secret(GOOGLE_PHOTOS_CLIENT_SECRET_KEY, &secret)?;
+    }
+    settings.google_photos_client_secret = None;
+
     let json_string = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     fs::write(path, json_string).map_err(|e| e.to_string())?;
 
