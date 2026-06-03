@@ -22,6 +22,7 @@ const AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const PHOTOS_API: &str = "https://photoslibrary.googleapis.com/v1";
 const UPLOAD_URL: &str = "https://photoslibrary.googleapis.com/v1/uploads";
+const GOOGLE_PHOTOS_REAUTH_REQUIRED_PREFIX: &str = "GOOGLE_PHOTOS_REAUTH_REQUIRED:";
 const GOOGLE_PHOTOS_SCOPES: &[&str] = &[
     "https://www.googleapis.com/auth/photoslibrary.appendonly",
     "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
@@ -221,6 +222,14 @@ fn write_token(app_handle: &AppHandle, token: &GooglePhotosToken) -> Result<(), 
     fs::write(path, content).map_err(|e| e.to_string())
 }
 
+fn clear_token(app_handle: &AppHandle) -> Result<(), String> {
+    let path = token_path(app_handle)?;
+    if path.exists() {
+        fs::remove_file(path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 fn read_sync_index(
     app_handle: &AppHandle,
 ) -> Result<HashMap<String, GooglePhotosSyncEntry>, String> {
@@ -331,6 +340,24 @@ fn format_oauth_error(error: &str, description: Option<&str>) -> String {
         (_, Some(description)) => format!("Google sign-in failed: {} ({})", description, error),
         (_, None) => format!("Google sign-in failed: {}", error),
     }
+}
+
+fn google_photos_reauth_required_error() -> String {
+    format!(
+        "{} Google Photos authorization expired or was revoked. Sign in again from Settings > Google Photos.",
+        GOOGLE_PHOTOS_REAUTH_REQUIRED_PREFIX
+    )
+}
+
+fn is_invalid_grant_error(body: &str) -> bool {
+    let lower_body = body.to_ascii_lowercase();
+    lower_body.contains("invalid_grant")
+        || (lower_body.contains("token") && lower_body.contains("expired or revoked"))
+}
+
+fn clear_token_and_require_reauth(app_handle: &AppHandle) -> String {
+    let _ = clear_token(app_handle);
+    google_photos_reauth_required_error()
 }
 
 fn start_loopback_listener(
@@ -471,7 +498,7 @@ async fn get_access_token(
     let refresh_token = token
         .refresh_token
         .clone()
-        .ok_or("Google Photos login expired. Disconnect and sign in again.".to_string())?;
+        .ok_or_else(|| clear_token_and_require_reauth(app_handle))?;
     let (client_id, client_secret) = auth_config(settings)?;
     let client = reqwest::Client::new();
     let mut form = vec![
@@ -491,10 +518,11 @@ async fn get_access_token(
         .await
         .map_err(|e| format!("Token refresh failed: {}", e))?;
     if !response.status().is_success() {
-        return Err(format!(
-            "Token refresh failed: {}",
-            response.text().await.unwrap_or_default()
-        ));
+        let body = response.text().await.unwrap_or_default();
+        if is_invalid_grant_error(&body) {
+            return Err(clear_token_and_require_reauth(app_handle));
+        }
+        return Err(format!("Token refresh failed: {}", body));
     }
     let refreshed: TokenResponse = response.json().await.map_err(|e| e.to_string())?;
     token.access_token = refreshed.access_token;
@@ -513,6 +541,16 @@ async fn google_json_error(response: reqwest::Response) -> String {
     } else {
         format!("{}: {}", status, body)
     }
+}
+
+async fn google_json_error_or_reauth(
+    app_handle: &AppHandle,
+    response: reqwest::Response,
+) -> String {
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return clear_token_and_require_reauth(app_handle);
+    }
+    google_json_error(response).await
 }
 
 fn album_title(settings: &AppSettings) -> String {
@@ -711,7 +749,7 @@ pub async fn google_photos_create_album(
     if !response.status().is_success() {
         return Err(format!(
             "Failed to create Google Photos album: {}",
-            google_json_error(response).await
+            google_json_error_or_reauth(&app_handle, response).await
         ));
     }
     let album: AlbumResponse = response.json().await.map_err(|e| e.to_string())?;
@@ -760,7 +798,7 @@ pub async fn google_photos_rename_album(
     if !response.status().is_success() {
         return Err(format!(
             "Failed to rename Google Photos album: {}",
-            google_json_error(response).await
+            google_json_error_or_reauth(&app_handle, response).await
         ));
     }
     let album: AlbumResponse = response.json().await.map_err(|e| e.to_string())?;
@@ -805,7 +843,7 @@ pub async fn google_photos_list_album_media(
         if !response.status().is_success() {
             return Err(format!(
                 "Failed to list Google Photos album: {}",
-                google_json_error(response).await
+                google_json_error_or_reauth(&app_handle, response).await
             ));
         }
         let page: SearchResponse = response.json().await.map_err(|e| e.to_string())?;
@@ -882,10 +920,15 @@ pub async fn google_photos_sync_files(
                             message: err.to_string(),
                         }),
                     },
-                    Ok(resp) => failed.push(GooglePhotosSyncFailure {
-                        path,
-                        message: google_json_error(resp).await,
-                    }),
+                    Ok(resp) => {
+                        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+                            return Err(clear_token_and_require_reauth(&app_handle));
+                        }
+                        failed.push(GooglePhotosSyncFailure {
+                            path,
+                            message: google_json_error(resp).await,
+                        });
+                    }
                     Err(err) => failed.push(GooglePhotosSyncFailure {
                         path,
                         message: err.to_string(),
@@ -921,7 +964,10 @@ pub async fn google_photos_sync_files(
             .await
             .map_err(|e| e.to_string())?;
         if !response.status().is_success() {
-            let message = google_json_error(response).await;
+            let message = google_json_error_or_reauth(&app_handle, response).await;
+            if message.starts_with(GOOGLE_PHOTOS_REAUTH_REQUIRED_PREFIX) {
+                return Err(message);
+            }
             for (path, _) in chunk {
                 failed.push(GooglePhotosSyncFailure {
                     path: path.clone(),
@@ -1022,7 +1068,10 @@ pub async fn google_photos_unsync_files(
             .await
             .map_err(|e| e.to_string())?;
         if !response.status().is_success() {
-            let message = google_json_error(response).await;
+            let message = google_json_error_or_reauth(&app_handle, response).await;
+            if message.starts_with(GOOGLE_PHOTOS_REAUTH_REQUIRED_PREFIX) {
+                return Err(message);
+            }
             for media_id in chunk {
                 failed.push(GooglePhotosSyncFailure {
                     path: path_by_media_id

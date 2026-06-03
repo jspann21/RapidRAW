@@ -14,6 +14,11 @@ import { globalImageCache } from '../utils/ImageLRUCache';
 import { debouncedSave, debouncedSetHistory } from './useEditorActions';
 import { GOOGLE_PHOTOS_FOLDER_PATH, useGooglePhotosStore } from '../store/useGooglePhotosStore';
 import { nextRecentFolders } from '../utils/folderPaths';
+import {
+  formatGooglePhotosError,
+  isGooglePhotosReauthRequired,
+  notifyGooglePhotosReauthRequired,
+} from '../utils/googlePhotosAuth';
 
 export interface AppNavigationProps {
   clearThumbnailQueue: () => void;
@@ -421,6 +426,9 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       return;
     }
 
+    const previousLibraryState = useLibraryStore.getState();
+    const previousGooglePhotosState = useGooglePhotosStore.getState();
+
     await invoke('cancel_thumbnail_generation');
     clearThumbnailQueue();
     globalImageCache.clear();
@@ -447,8 +455,21 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       setLibrary({ imageList: files });
     } catch (err) {
       console.error('Failed to load Google Photos album:', err);
-      toast.error(`Failed to load Google Photos album: ${err}`);
-      setGooglePhotos({ isAlbumView: false });
+      setLibrary({
+        activeAlbumId: previousLibraryState.activeAlbumId,
+        currentFolderPath: previousLibraryState.currentFolderPath,
+        imageList: previousLibraryState.imageList,
+        imageRatings: previousLibraryState.imageRatings,
+        libraryActivePath: previousLibraryState.libraryActivePath,
+        libraryScrollTop: previousLibraryState.libraryScrollTop,
+        multiSelectedPaths: previousLibraryState.multiSelectedPaths,
+      });
+      setGooglePhotos({ isAlbumView: previousGooglePhotosState.isAlbumView });
+      if (isGooglePhotosReauthRequired(err)) {
+        notifyGooglePhotosReauthRequired();
+      } else {
+        toast.error(`Failed to load Google Photos album: ${formatGooglePhotosError(err)}`);
+      }
     } finally {
       useLibraryStore.getState().setLibrary({ isViewLoading: false });
     }

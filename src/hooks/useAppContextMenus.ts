@@ -57,6 +57,11 @@ import { useEditorActions } from './useEditorActions';
 import { useLibraryActions } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { GOOGLE_PHOTOS_FOLDER_PATH, useGooglePhotosStore } from '../store/useGooglePhotosStore';
+import {
+  formatGooglePhotosError,
+  isGooglePhotosReauthRequired,
+  notifyGooglePhotosReauthRequired,
+} from '../utils/googlePhotosAuth';
 
 const RIGHT_PANEL_ORDER = [
   Panel.Metadata,
@@ -137,13 +142,17 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           });
         }
       } catch (err) {
-        toast.update(toastId, {
-          render: `Failed to sync to Google Photos: ${err}`,
-          type: 'error',
-          isLoading: false,
-          autoClose: 5000,
-          closeOnClick: true,
-        });
+        if (isGooglePhotosReauthRequired(err)) {
+          notifyGooglePhotosReauthRequired(toastId);
+        } else {
+          toast.update(toastId, {
+            render: `Failed to sync to Google Photos: ${formatGooglePhotosError(err)}`,
+            type: 'error',
+            isLoading: false,
+            autoClose: 5000,
+            closeOnClick: true,
+          });
+        }
       }
     },
     [refreshGooglePhotosSyncIndex],
@@ -163,7 +172,11 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           toast.success(paths.length === 1 ? 'Unsynced from Google Photos.' : `Unsynced ${paths.length} photos.`);
         }
       } catch (err) {
-        toast.error(`Failed to unsync from Google Photos: ${err}`);
+        if (isGooglePhotosReauthRequired(err)) {
+          notifyGooglePhotosReauthRequired();
+        } else {
+          toast.error(`Failed to unsync from Google Photos: ${formatGooglePhotosError(err)}`);
+        }
       }
     },
     [props, refreshGooglePhotosSyncIndex],

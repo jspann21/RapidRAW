@@ -65,6 +65,11 @@ export interface CullingModalState {
   pathsToCull: Array<string>;
 }
 
+export interface SettingsPanelRequest {
+  category: string;
+  id: number;
+}
+
 interface UIState {
   // View & Layout
   activeView: string;
@@ -86,6 +91,7 @@ interface UIState {
   renderedRightPanel: Panel | null;
   slideDirection: number;
   collapsibleSectionsState: CollapsibleSectionsState;
+  settingsPanelRequest: SettingsPanelRequest | null;
 
   // Modals & Dialogs
   isCreateFolderModalOpen: boolean;
@@ -115,6 +121,7 @@ interface UIState {
 
   // Actions
   setUI: (updater: Partial<UIState> | ((state: UIState) => Partial<UIState>)) => void;
+  requestSettingsPanel: (category?: string) => void;
   setRightPanel: (panel: Panel | null, orderArray: Panel[]) => void;
   customEscapeHandler: (() => void) | null;
   setCustomEscapeHandler: (handler: (() => void) | null) => void;
@@ -138,6 +145,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   renderedRightPanel: Panel.Adjustments,
   slideDirection: 1,
   collapsibleSectionsState: { basic: true, color: false, curves: true, details: false, effects: false },
+  settingsPanelRequest: null,
 
   isCreateFolderModalOpen: false,
   isRenameFolderModalOpen: false,
@@ -185,6 +193,14 @@ export const useUIStore = create<UIState>((set, get) => ({
   collageModalState: { isOpen: false, sourceImages: [] },
 
   setUI: (updater) => set((state) => (typeof updater === 'function' ? updater(state) : updater)),
+
+  requestSettingsPanel: (category = 'general') =>
+    set((state) => ({
+      settingsPanelRequest: {
+        category,
+        id: (state.settingsPanelRequest?.id ?? 0) + 1,
+      },
+    })),
 
   setRightPanel: (panelId, RIGHT_PANEL_ORDER) => {
     const current = get().activeRightPanel;

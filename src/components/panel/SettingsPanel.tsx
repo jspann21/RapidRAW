@@ -92,6 +92,8 @@ interface SettingItemProps {
 
 interface SettingsPanelProps {
   appSettings: any;
+  initialCategory?: string;
+  initialCategoryRequestId?: number;
   onBack(): void;
   onLibraryRefresh(): void;
   onSettingsChange(settings: any): Promise<void>;
@@ -640,6 +642,8 @@ const PreviewModeSwitch = ({ mode, onModeChange }: PreviewModeSwitchProps) => {
 
 export default function SettingsPanel({
   appSettings,
+  initialCategory,
+  initialCategoryRequestId,
   onBack,
   onLibraryRefresh,
   onSettingsChange,
@@ -711,7 +715,7 @@ export default function SettingsPanel({
     applyPreprocessingToNonRaws: appSettings?.applyPreprocessingToNonRaws ?? false,
   });
   const [restartRequired, setRestartRequired] = useState(false);
-  const [activeCategory, setActiveCategory] = useState('general');
+  const [activeCategory, setActiveCategory] = useState(initialCategory || 'general');
   const [logPath, setLogPath] = useState('');
   const [dpr, setDpr] = useState(() => (typeof window !== 'undefined' ? window.devicePixelRatio : 1));
 
@@ -736,6 +740,12 @@ export default function SettingsPanel({
       window.removeEventListener('resize', updateDpr);
     };
   }, []);
+
+  useEffect(() => {
+    if (initialCategory && settingCategories.some((category) => category.id === initialCategory)) {
+      setActiveCategory(initialCategory);
+    }
+  }, [initialCategory, initialCategoryRequestId]);
 
   const customAiTags = Array.from(new Set<string>(appSettings?.customAiTags || []));
   const taggingShortcuts = Array.from(new Set<string>(appSettings?.taggingShortcuts || []));

@@ -35,6 +35,7 @@ import { ImportState, Status } from '../ui/ExportImportProperties';
 import Text from '../ui/Text';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useLibraryStore } from '../../store/useLibraryStore';
+import { useUIStore } from '../../store/useUIStore';
 import { getFolderDisplayName } from '../../utils/folderPaths';
 
 import LibraryGrid from './library/LibraryGrid';
@@ -116,6 +117,7 @@ export default function MainLibrary(props: MainLibraryProps) {
   const [isProgressHovered, setIsProgressHovered] = useState(false);
 
   const searchCriteria = useLibraryStore((state) => state.searchCriteria);
+  const settingsPanelRequest = useUIStore((state) => state.settingsPanelRequest);
 
   const sortOptions = [
     { key: 'name', label: 'File Name' },
@@ -144,6 +146,12 @@ export default function MainLibrary(props: MainLibraryProps) {
 
     return () => clearTimeout(timer);
   }, [isBusy]);
+
+  useEffect(() => {
+    if (settingsPanelRequest) {
+      setShowSettings(true);
+    }
+  }, [settingsPanelRequest]);
 
   useEffect(() => {
     const compareVersions = (v1: string, v2: string) => {
@@ -186,6 +194,22 @@ export default function MainLibrary(props: MainLibraryProps) {
 
     checkVersion();
   }, []);
+
+  if (showSettings && props.rootPaths?.length > 0 && props.appSettings) {
+    return (
+      <div className="flex-1 h-full min-w-0 bg-bg-secondary rounded-lg overflow-hidden p-6">
+        <SettingsPanel
+          appSettings={props.appSettings}
+          initialCategory={settingsPanelRequest?.category}
+          initialCategoryRequestId={settingsPanelRequest?.id}
+          onBack={() => setShowSettings(false)}
+          onLibraryRefresh={props.onLibraryRefresh}
+          onSettingsChange={props.onSettingsChange}
+          rootPaths={props.rootPaths}
+        />
+      </div>
+    );
+  }
 
   if (!props.rootPaths || props.rootPaths.length === 0) {
     if (!props.appSettings) {
@@ -232,6 +256,8 @@ export default function MainLibrary(props: MainLibraryProps) {
               {showSettings ? (
                 <SettingsPanel
                   appSettings={props.appSettings}
+                  initialCategory={settingsPanelRequest?.category}
+                  initialCategoryRequestId={settingsPanelRequest?.id}
                   onBack={() => setShowSettings(false)}
                   onLibraryRefresh={props.onLibraryRefresh}
                   onSettingsChange={props.onSettingsChange}
