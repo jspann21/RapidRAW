@@ -1,6 +1,5 @@
 import { useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { open as openUrl } from '@tauri-apps/plugin-shell';
 import {
   Aperture,
   Check,
@@ -60,6 +59,7 @@ import { useEditorActions } from './useEditorActions';
 import { useLibraryActions } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { GOOGLE_PHOTOS_FOLDER_PATH, useGooglePhotosStore } from '../store/useGooglePhotosStore';
+import { openExternalUrl } from '../utils/safeOpenUrl';
 import {
   formatGooglePhotosError,
   isGooglePhotosReauthRequired,
@@ -501,7 +501,11 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
             disabled: !isSingleSelection || !imageList.find((image) => image.path === finalSelection[0])?.googlePhotosProductUrl,
             onClick: () => {
               const productUrl = imageList.find((image) => image.path === finalSelection[0])?.googlePhotosProductUrl;
-              if (productUrl) openUrl(productUrl);
+              if (productUrl) {
+                void openExternalUrl(productUrl, {
+                  allowedHosts: ['photos.google.com', 'photos.app.goo.gl'],
+                }).catch((err) => console.warn('Blocked Google Photos URL:', err));
+              }
             },
           },
           {

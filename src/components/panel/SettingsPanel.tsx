@@ -29,7 +29,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { open as openUrl } from '@tauri-apps/plugin-shell';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
 import { Show, SignIn, useUser, useAuth, useClerk } from '@clerk/react';
@@ -52,7 +51,7 @@ import {
 import Text from '../ui/Text';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useOsPlatform } from '../../hooks/useOsPlatform';
-import { open } from '@tauri-apps/plugin-shell';
+import { openExternalUrl } from '../../utils/safeOpenUrl';
 
 interface ConfirmModalState {
   cancelText?: string;
@@ -492,7 +491,11 @@ const CloudDashboard = () => {
           <Button
             variant="ghost"
             className="bg-transparent text-text-secondary hover:text-text-primary hover:bg-surface border-none shadow-none"
-            onClick={() => open('https://www.getrapidraw.com/dashboard')}
+            onClick={() =>
+              void openExternalUrl('https://www.getrapidraw.com/dashboard', {
+                allowedHosts: ['www.getrapidraw.com'],
+              })
+            }
           >
             {t('settings.processing.ai.cloud.signedIn.manage')} <ExternalLinkIcon size={14} className="ml-1" />
           </Button>
@@ -528,7 +531,13 @@ const CloudDashboard = () => {
       ) : (
         <div className="bg-red-900/10 border border-red-500/50 p-4 rounded-md text-center">
           <Text className="mb-3">{t('settings.processing.ai.cloud.signedOut.upgradeDesc')}</Text>
-          <Button onClick={() => open('https://www.getrapidraw.com/cloud')}>
+          <Button
+            onClick={() =>
+              void openExternalUrl('https://www.getrapidraw.com/cloud', {
+                allowedHosts: ['www.getrapidraw.com'],
+              })
+            }
+          >
             {t('settings.processing.ai.cloud.signedOut.upgradeBtn')}
           </Button>
         </div>
@@ -1417,7 +1426,7 @@ export default function SettingsPanel({
       await saveGooglePhotosCredentials(true);
       const start: any = await invoke(Invokes.GooglePhotosStartLogin);
       loginState = start.state;
-      await openUrl(start.authorizationUrl);
+      await openExternalUrl(start.authorizationUrl, { allowedHosts: ['accounts.google.com'] });
 
       for (let attempt = 0; attempt < GOOGLE_PHOTOS_LOGIN_MAX_POLLS; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, GOOGLE_PHOTOS_LOGIN_POLL_INTERVAL_MS));
@@ -3764,7 +3773,11 @@ export default function SettingsPanel({
                                   <Text variant={TextVariants.small}>
                                     {t('settings.processing.ai.cloud.signedOut.noAccount')}{' '}
                                     <button
-                                      onClick={() => open('https://www.getrapidraw.com/dashboard')}
+                                      onClick={() =>
+                                        void openExternalUrl('https://www.getrapidraw.com/dashboard', {
+                                          allowedHosts: ['www.getrapidraw.com'],
+                                        })
+                                      }
                                       className="text-accent hover:underline focus:outline-none"
                                     >
                                       {t('settings.processing.ai.cloud.signedOut.signup')}

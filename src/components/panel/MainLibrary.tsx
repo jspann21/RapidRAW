@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
-import { open } from '@tauri-apps/plugin-shell';
 import {
   AlertTriangle,
   Check,
@@ -35,6 +34,7 @@ import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useUIStore } from '../../store/useUIStore';
 import { getFolderDisplayName } from '../../utils/folderPaths';
+import { openExternalUrl } from '../../utils/safeOpenUrl';
 
 import LibraryGrid from './library/LibraryGrid';
 import { SearchInput, ViewOptionsDropdown } from './library/LibraryHeader';
@@ -413,7 +413,9 @@ export default function MainLibrary(props: MainLibraryProps) {
                             }`}
                             onClick={() => {
                               if (isUpdateAvailable) {
-                                open('https://github.com/CyberTimon/RapidRAW/releases/latest');
+                                void openExternalUrl('https://github.com/CyberTimon/RapidRAW/releases/latest', {
+                                  allowedHosts: ['github.com'],
+                                });
                               }
                             }}
                             data-tooltip={
