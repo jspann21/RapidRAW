@@ -14,7 +14,7 @@ use tokenizers::Tokenizer;
 use tokio::task::JoinHandle;
 use walkdir::WalkDir;
 
-use crate::file_management::{self, parse_virtual_path};
+use crate::file_management::{self, ensure_path_in_allowed_roots, parse_virtual_path};
 use crate::formats::is_supported_image_file;
 use crate::hierarchy::TAG_HIERARCHY;
 use crate::image_processing::ImageMetadata;
@@ -480,7 +480,8 @@ pub fn remove_tag_for_paths(paths: Vec<String>, tag: String) -> Result<(), Strin
 }
 
 #[tauri::command]
-pub fn clear_ai_tags(root_path: String) -> Result<usize, String> {
+pub fn clear_ai_tags(root_path: String, app_handle: AppHandle) -> Result<usize, String> {
+    ensure_path_in_allowed_roots(&app_handle, Path::new(&root_path), "Clear AI tags")?;
     if !Path::new(&root_path).exists() {
         return Err(format!("Root path does not exist: {}", root_path));
     }
@@ -518,7 +519,8 @@ pub fn clear_ai_tags(root_path: String) -> Result<usize, String> {
 }
 
 #[tauri::command]
-pub fn clear_all_tags(root_path: String) -> Result<usize, String> {
+pub fn clear_all_tags(root_path: String, app_handle: AppHandle) -> Result<usize, String> {
+    ensure_path_in_allowed_roots(&app_handle, Path::new(&root_path), "Clear all tags")?;
     if !Path::new(&root_path).exists() {
         return Err(format!("Root path does not exist: {}", root_path));
     }

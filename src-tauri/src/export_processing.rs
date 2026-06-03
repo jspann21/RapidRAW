@@ -17,6 +17,7 @@ use tauri::Manager;
 use crate::AppState;
 use crate::exif_processing;
 use crate::file_management::{
+    ensure_path_in_allowed_roots, ensure_virtual_path_in_allowed_roots,
     generate_filename_from_template, parse_virtual_path, read_file_mapped,
 };
 use crate::formats::is_raw_file;
@@ -653,6 +654,22 @@ pub async fn export_images(
     if state.export_task_handle.lock().unwrap().is_some() {
         return Err("An export is already in progress.".to_string());
     }
+
+    for path in &paths {
+        ensure_virtual_path_in_allowed_roots(&app_handle, path, "Export source")?;
+    }
+    for base_origin_folder in &base_origin_folders {
+        ensure_path_in_allowed_roots(
+            &app_handle,
+            Path::new(base_origin_folder),
+            "Export base folder",
+        )?;
+    }
+    ensure_path_in_allowed_roots(
+        &app_handle,
+        Path::new(&output_folder_or_file),
+        "Export destination",
+    )?;
 
     let context = get_or_init_gpu_context(&state, &app_handle)?;
     let context = Arc::new(context);

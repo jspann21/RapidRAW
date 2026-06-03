@@ -249,6 +249,88 @@ pub fn parse_virtual_path(virtual_path: &str) -> (PathBuf, PathBuf) {
     (source_path, sidecar_path)
 }
 
+fn canonicalize_for_scope_check(path: &Path) -> Result<PathBuf, String> {
+    if path.exists() {
+        return fs::canonicalize(path).map_err(|e| e.to_string());
+    }
+
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .ok_or_else(|| format!("Path has no parent: {}", path.display()))?;
+    let canonical_parent = fs::canonicalize(parent).map_err(|e| {
+        format!(
+            "Failed to resolve parent folder {}: {}",
+            parent.display(),
+            e
+        )
+    })?;
+    Ok(match path.file_name() {
+        Some(file_name) => canonical_parent.join(file_name),
+        None => canonical_parent,
+    })
+}
+
+fn allowed_library_roots(app_handle: &AppHandle) -> Result<Vec<PathBuf>, String> {
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let mut root_candidates = settings.root_folders;
+
+    if let Some(last_root_path) = settings.last_root_path {
+        root_candidates.push(last_root_path);
+    }
+
+    if let Ok(internal_root) = get_internal_library_root_path(app_handle) {
+        root_candidates.push(internal_root.to_string_lossy().into_owned());
+    }
+
+    let mut roots = Vec::new();
+    for root in root_candidates {
+        let root_path = PathBuf::from(root);
+        if root_path.exists() {
+            let canonical_root = fs::canonicalize(&root_path).map_err(|e| {
+                format!(
+                    "Failed to resolve library root {}: {}",
+                    root_path.display(),
+                    e
+                )
+            })?;
+            if !roots.iter().any(|existing| existing == &canonical_root) {
+                roots.push(canonical_root);
+            }
+        }
+    }
+
+    Ok(roots)
+}
+
+pub fn ensure_path_in_allowed_roots(
+    app_handle: &AppHandle,
+    path: &Path,
+    operation: &str,
+) -> Result<(), String> {
+    let candidate = canonicalize_for_scope_check(path)?;
+    let roots = allowed_library_roots(app_handle)?;
+
+    if roots.iter().any(|root| candidate.starts_with(root)) {
+        return Ok(());
+    }
+
+    Err(format!(
+        "{} denied: {} is outside configured library folders.",
+        operation,
+        path.display()
+    ))
+}
+
+pub fn ensure_virtual_path_in_allowed_roots(
+    app_handle: &AppHandle,
+    virtual_path: &str,
+    operation: &str,
+) -> Result<(), String> {
+    let (source_path, _) = parse_virtual_path(virtual_path);
+    ensure_path_in_allowed_roots(app_handle, &source_path, operation)
+}
+
 #[tauri::command]
 pub async fn read_exif_for_paths(
     paths: Vec<String>,
@@ -1768,7 +1850,9 @@ pub fn get_supported_file_types() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub fn create_folder(path: String) -> Result<(), String> {
+pub fn create_folder(path: String, app_handle: AppHandle) -> Result<(), String> {
+    ensure_path_in_allowed_roots(&app_handle, Path::new(&path), "Create folder")?;
+
     let path_obj = Path::new(&path);
     if let (Some(parent), Some(new_folder_name_os)) = (path_obj.parent(), path_obj.file_name())
         && let Some(new_folder_name) = new_folder_name_os.to_str()
@@ -1789,6 +1873,7 @@ pub fn create_folder(path: String) -> Result<(), String> {
 #[tauri::command]
 pub fn rename_folder(path: String, new_name: String, app_handle: AppHandle) -> Result<(), String> {
     let p = Path::new(&path);
+    ensure_path_in_allowed_roots(&app_handle, p, "Rename folder")?;
     if !p.is_dir() {
         return Err("Path is not a directory.".to_string());
     }
@@ -1802,6 +1887,7 @@ pub fn rename_folder(path: String, new_name: String, app_handle: AppHandle) -> R
             }
         }
         let new_path = parent.join(&new_name);
+        ensure_path_in_allowed_roots(&app_handle, &new_path, "Rename folder")?;
         fs::rename(p, &new_path).map_err(|e| e.to_string())?;
 
         let new_folder_str = new_path.to_string_lossy().into_owned();
@@ -1815,6 +1901,8 @@ pub fn rename_folder(path: String, new_name: String, app_handle: AppHandle) -> R
 
 #[tauri::command]
 pub fn delete_folder(path: String, app_handle: AppHandle) -> Result<(), String> {
+    ensure_path_in_allowed_roots(&app_handle, Path::new(&path), "Delete folder")?;
+
     #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
     {
         if let Err(trash_error) = trash::delete(&path) {
@@ -1845,6 +1933,7 @@ pub fn duplicate_file(
     app_handle: AppHandle,
 ) -> Result<String, String> {
     let (source_path, source_sidecar_path) = parse_virtual_path(&path);
+    ensure_path_in_allowed_roots(&app_handle, &source_path, "Duplicate file")?;
     if !source_path.is_file() {
         return Err("Source path is not a file.".to_string());
     }
@@ -1953,8 +2042,13 @@ fn find_all_associated_files(source_image_path: &Path) -> Result<Vec<PathBuf>, S
 }
 
 #[tauri::command]
-pub fn copy_files(source_paths: Vec<String>, destination_folder: String) -> Result<(), String> {
+pub fn copy_files(
+    source_paths: Vec<String>,
+    destination_folder: String,
+    app_handle: AppHandle,
+) -> Result<(), String> {
     let dest_path = Path::new(&destination_folder);
+    ensure_path_in_allowed_roots(&app_handle, dest_path, "Copy files destination")?;
     if !dest_path.is_dir() {
         return Err(format!(
             "Destination is not a folder: {}",
@@ -1968,6 +2062,7 @@ pub fn copy_files(source_paths: Vec<String>, destination_folder: String) -> Resu
         .collect();
 
     for source_image_path in unique_source_images {
+        ensure_path_in_allowed_roots(&app_handle, &source_image_path, "Copy files source")?;
         let all_files_to_copy = find_all_associated_files(&source_image_path)?;
 
         let source_parent = source_image_path
@@ -2022,6 +2117,7 @@ pub fn move_files(
     app_handle: AppHandle,
 ) -> Result<(), String> {
     let dest_path = Path::new(&destination_folder);
+    ensure_path_in_allowed_roots(&app_handle, dest_path, "Move files destination")?;
     if !dest_path.is_dir() {
         return Err(format!(
             "Destination is not a folder: {}",
@@ -2038,6 +2134,7 @@ pub fn move_files(
     let mut renames = HashMap::new();
 
     for source_image_path in unique_source_images {
+        ensure_path_in_allowed_roots(&app_handle, &source_image_path, "Move files source")?;
         let source_parent = source_image_path
             .parent()
             .ok_or("Could not get parent directory")?;
@@ -2689,6 +2786,11 @@ pub fn handle_import_presets_from_file(
     file_path: String,
     app_handle: AppHandle,
 ) -> Result<Vec<PresetItem>, String> {
+    ensure_path_in_allowed_roots(
+        &app_handle,
+        Path::new(&file_path),
+        "Import presets from file",
+    )?;
     let content =
         fs::read_to_string(file_path).map_err(|e| format!("Failed to read preset file: {}", e))?;
     let imported_preset_file: PresetFile = serde_json::from_str(&content)
@@ -2744,6 +2846,11 @@ pub fn handle_import_legacy_presets_from_file(
     file_path: String,
     app_handle: AppHandle,
 ) -> Result<Vec<PresetItem>, String> {
+    ensure_path_in_allowed_roots(
+        &app_handle,
+        Path::new(&file_path),
+        "Import legacy presets from file",
+    )?;
     let content = fs::read_to_string(&file_path)
         .map_err(|e| format!("Failed to read legacy preset file: {}", e))?;
 
@@ -2796,7 +2903,9 @@ pub fn handle_import_legacy_presets_from_file(
 pub fn handle_export_presets_to_file(
     presets_to_export: Vec<PresetItem>,
     file_path: String,
+    app_handle: AppHandle,
 ) -> Result<(), String> {
+    ensure_path_in_allowed_roots(&app_handle, Path::new(&file_path), "Export presets to file")?;
     let preset_file = ExportPresetFile {
         creator: "Anonymous",
         presets: &presets_to_export,
@@ -2863,7 +2972,8 @@ pub fn save_community_preset(
 }
 
 #[tauri::command]
-pub fn clear_all_sidecars(root_path: String) -> Result<usize, String> {
+pub fn clear_all_sidecars(root_path: String, app_handle: AppHandle) -> Result<usize, String> {
+    ensure_path_in_allowed_roots(&app_handle, Path::new(&root_path), "Clear sidecars")?;
     if !Path::new(&root_path).exists() {
         return Err(format!("Root path does not exist: {}", root_path));
     }
@@ -2962,6 +3072,7 @@ pub fn delete_files_from_disk(paths: Vec<String>, app_handle: AppHandle) -> Resu
 
     for path_str in paths {
         let (source_path, sidecar_path) = parse_virtual_path(&path_str);
+        ensure_path_in_allowed_roots(&app_handle, &source_path, "Delete files")?;
         deletions.insert(path_str.clone());
 
         if path_str.contains("?vc=") {
@@ -2993,6 +3104,10 @@ pub fn delete_files_from_disk(paths: Vec<String>, app_handle: AppHandle) -> Resu
     }
 
     let final_paths_to_delete: Vec<PathBuf> = files_to_trash.into_iter().collect();
+    for path in &final_paths_to_delete {
+        ensure_path_in_allowed_roots(&app_handle, path, "Delete files")?;
+    }
+
     #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
     if let Err(trash_error) = trash::delete_all(&final_paths_to_delete) {
         log::warn!(
@@ -3042,6 +3157,7 @@ pub fn delete_files_with_associated(
     for path_str in &paths {
         deletions.insert(path_str.clone());
         let (source_path, _) = parse_virtual_path(path_str);
+        ensure_path_in_allowed_roots(&app_handle, &source_path, "Delete associated files")?;
         if let Some(file_name) = source_path.file_name().and_then(|s| s.to_str())
             && let Some(stem) = file_name.split('.').next()
         {
@@ -3086,6 +3202,10 @@ pub fn delete_files_with_associated(
     }
 
     let final_paths_to_delete: Vec<PathBuf> = files_to_trash.into_iter().collect();
+    for path in &final_paths_to_delete {
+        ensure_path_in_allowed_roots(&app_handle, path, "Delete associated files")?;
+    }
+
     #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
     if let Err(trash_error) = trash::delete_all(&final_paths_to_delete) {
         log::warn!(
@@ -3591,6 +3711,7 @@ pub fn rename_files(
 
     for (i, path_str) in paths.iter().enumerate() {
         let (original_path, _) = parse_virtual_path(path_str);
+        ensure_path_in_allowed_roots(&app_handle, &original_path, "Rename files")?;
         if !original_path.exists() {
             return Err(format!("File not found: {}", path_str));
         }
@@ -3614,6 +3735,7 @@ pub fn rename_files(
         )?;
         let new_filename = format!("{}.{}", new_stem, extension);
         let new_path = parent.join(new_filename);
+        ensure_path_in_allowed_roots(&app_handle, &new_path, "Rename files")?;
 
         if new_path.exists() && new_path != original_path {
             return Err(format!(
@@ -3701,10 +3823,12 @@ pub fn create_virtual_copy(
     app_handle: AppHandle,
 ) -> Result<String, String> {
     let (source_path, source_sidecar_path) = parse_virtual_path(&source_virtual_path);
+    ensure_path_in_allowed_roots(&app_handle, &source_path, "Create virtual copy")?;
 
     let new_copy_id = Uuid::new_v4().to_string()[..6].to_string();
     let new_virtual_path = format!("{}?vc={}", source_path.to_string_lossy(), new_copy_id);
     let (_, new_sidecar_path) = parse_virtual_path(&new_virtual_path);
+    ensure_path_in_allowed_roots(&app_handle, &new_sidecar_path, "Create virtual copy")?;
 
     if source_sidecar_path.exists() {
         fs::copy(&source_sidecar_path, &new_sidecar_path)
