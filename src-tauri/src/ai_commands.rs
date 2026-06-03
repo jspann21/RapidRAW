@@ -599,30 +599,12 @@ pub async fn invoke_generative_replace_with_mask_def(
 
         ai_processing::run_lama_inpainting(&source_image, &mask_bitmap, &lama_model)
             .map_err(|e| e.to_string())?
-    } else if settings.ai_provider.as_deref() == Some("cloud")
-        && let Some(auth_token) = token
-    {
-        let base_url = "https://getrapidraw.com/api";
-
-        let mut rgba_mask = RgbaImage::new(img_w, img_h);
-        for (x, y, luma_pixel) in mask_bitmap.enumerate_pixels() {
-            let intensity = luma_pixel[0];
-            rgba_mask.put_pixel(x, y, Rgba([intensity, intensity, intensity, 255]));
-        }
-        let mask_image_dynamic = DynamicImage::ImageRgba8(rgba_mask);
-
-        let (real_path_buf, _) = crate::file_management::parse_virtual_path(&path);
-
-        ai_connector::process_inpainting(
-            base_url,
-            &real_path_buf.to_string_lossy(),
-            &source_image,
-            &mask_image_dynamic,
-            patch_definition.prompt,
-            Some(&auth_token),
-        )
-        .await
-        .map_err(|e| e.to_string())?
+    } else if settings.ai_provider.as_deref() == Some("cloud") {
+        let _ = token;
+        return Err(
+            "Cloud AI generation is disabled in desktop IPC until server-issued sessions are available."
+                .to_string(),
+        );
     } else if settings.ai_provider.as_deref() == Some("ai-connector")
         && let Some(address) = settings.ai_connector_address
     {
