@@ -66,6 +66,7 @@ use rgb::{FromSlice, RGBA8};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tauri::{Emitter, Manager, ipc::Response};
 use tempfile::NamedTempFile;
 use tokio::sync::Mutex as TokioMutex;
@@ -131,6 +132,8 @@ pub struct CommunityPreset {
 
 const MAX_COMMUNITY_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_COMMUNITY_PRESETS: usize = 200;
+const COMMUNITY_PRESETS_MANIFEST_SHA256: &str =
+    "260e58b13d002e66be0efeed8c2739d9949a502ed22f76d7d94207b0d07d589a";
 
 #[derive(Serialize)]
 struct LutParseResult {
@@ -1218,6 +1221,10 @@ async fn fetch_community_presets() -> Result<Vec<CommunityPreset>, String> {
         .map_err(|e| format!("Failed to read manifest.json: {}", e))?;
     if manifest_bytes.len() > MAX_COMMUNITY_MANIFEST_BYTES {
         return Err("Community preset manifest is too large.".to_string());
+    }
+    let manifest_hash = hex::encode(Sha256::digest(&manifest_bytes));
+    if manifest_hash != COMMUNITY_PRESETS_MANIFEST_SHA256 {
+        return Err("Community preset manifest hash verification failed.".to_string());
     }
 
     let presets: Vec<CommunityPreset> = serde_json::from_slice(&manifest_bytes)
