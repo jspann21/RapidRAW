@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Utc;
@@ -25,6 +25,7 @@ const PHOTOS_API: &str = "https://photoslibrary.googleapis.com/v1";
 const UPLOAD_URL: &str = "https://photoslibrary.googleapis.com/v1/uploads";
 const GOOGLE_PHOTOS_REAUTH_REQUIRED_PREFIX: &str = "GOOGLE_PHOTOS_REAUTH_REQUIRED:";
 const GOOGLE_PHOTOS_TOKEN_KEY: &str = "google_photos_tokens";
+const OAUTH_PENDING_TTL: Duration = Duration::from_secs(10 * 60);
 const GOOGLE_PHOTOS_SCOPES: &[&str] = &[
     "https://www.googleapis.com/auth/photoslibrary.appendonly",
     "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
@@ -39,6 +40,7 @@ struct PendingOAuth {
     code_verifier: String,
     redirect_uri: String,
     result: Arc<Mutex<Option<Result<String, String>>>>,
+    created_at: Instant,
 }
 
 #[derive(Serialize)]
@@ -374,6 +376,14 @@ fn clear_token_and_require_reauth(app_handle: &AppHandle) -> String {
     google_photos_reauth_required_error()
 }
 
+fn cleanup_pending_oauth() {
+    let now = Instant::now();
+    PENDING_OAUTH
+        .lock()
+        .unwrap()
+        .retain(|_, pending| now.duration_since(pending.created_at) <= OAUTH_PENDING_TTL);
+}
+
 fn start_loopback_listener(
     expected_state: String,
     result: Arc<Mutex<Option<Result<String, String>>>>,
@@ -382,54 +392,79 @@ fn start_loopback_listener(
         .map_err(|e| format!("Failed to start OAuth listener: {}", e))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     listener
-        .set_nonblocking(false)
+        .set_nonblocking(true)
         .map_err(|e| format!("Failed to configure OAuth listener: {}", e))?;
 
     std::thread::spawn(move || {
         let _ = listener.set_ttl(1);
-        if let Ok((mut stream, _)) = listener.accept() {
-            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-            let mut buffer = [0_u8; 4096];
-            let read = stream.read(&mut buffer).unwrap_or(0);
-            let request = String::from_utf8_lossy(&buffer[..read]);
-            let first_line = request.lines().next().unwrap_or("");
-            let path = first_line.split_whitespace().nth(1).unwrap_or("");
-            let params = parse_query(path);
+        let deadline = Instant::now() + OAUTH_PENDING_TTL;
 
-            let response_result =
-                match (params.get("state"), params.get("code"), params.get("error")) {
-                    (Some(state), Some(code), _) if state == &expected_state => {
-                        send_oauth_browser_response(
-                            &mut stream,
-                            "RapidRAW Google Photos login complete",
-                            "You can close this browser tab and return to RapidRAW.",
-                        );
-                        Ok(code.to_string())
-                    }
-                    (Some(state), _, Some(error)) if state == &expected_state => {
-                        let message = format_oauth_error(
-                            error,
-                            params.get("error_description").map(String::as_str),
-                        );
-                        send_oauth_browser_response(
-                            &mut stream,
-                            "RapidRAW Google Photos login was not completed",
-                            &message,
-                        );
-                        Err(message)
-                    }
-                    _ => {
-                        send_oauth_browser_response(
-                            &mut stream,
-                            "RapidRAW Google Photos login failed",
-                            "The OAuth response did not match the request that RapidRAW started.",
-                        );
-                        Err("OAuth state mismatch".to_string())
-                    }
-                };
+        loop {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+                    let mut buffer = [0_u8; 4096];
+                    let read = stream.read(&mut buffer).unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buffer[..read]);
+                    let first_line = request.lines().next().unwrap_or("");
+                    let path = first_line.split_whitespace().nth(1).unwrap_or("");
+                    let params = parse_query(path);
 
-            if let Ok(mut lock) = result.lock() {
-                *lock = Some(response_result);
+                    let response_result = match (
+                        params.get("state"),
+                        params.get("code"),
+                        params.get("error"),
+                    ) {
+                        (Some(state), Some(code), _) if state == &expected_state => {
+                            send_oauth_browser_response(
+                                &mut stream,
+                                "RapidRAW Google Photos login complete",
+                                "You can close this browser tab and return to RapidRAW.",
+                            );
+                            Ok(code.to_string())
+                        }
+                        (Some(state), _, Some(error)) if state == &expected_state => {
+                            let message = format_oauth_error(
+                                error,
+                                params.get("error_description").map(String::as_str),
+                            );
+                            send_oauth_browser_response(
+                                &mut stream,
+                                "RapidRAW Google Photos login was not completed",
+                                &message,
+                            );
+                            Err(message)
+                        }
+                        _ => {
+                            send_oauth_browser_response(
+                                &mut stream,
+                                "RapidRAW Google Photos login failed",
+                                "The OAuth response did not match the request that RapidRAW started.",
+                            );
+                            Err("OAuth state mismatch".to_string())
+                        }
+                    };
+
+                    if let Ok(mut lock) = result.lock() {
+                        *lock = Some(response_result);
+                    }
+                    break;
+                }
+                Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                    if Instant::now() >= deadline {
+                        if let Ok(mut lock) = result.lock() {
+                            *lock = Some(Err("Google Photos sign-in timed out.".to_string()));
+                        }
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                Err(err) => {
+                    if let Ok(mut lock) = result.lock() {
+                        *lock = Some(Err(format!("OAuth listener failed: {}", err)));
+                    }
+                    break;
+                }
             }
         }
     });
@@ -621,6 +656,7 @@ fn mime_for_path(path: &str) -> String {
 
 #[tauri::command]
 pub fn google_photos_start_login(app_handle: AppHandle) -> Result<GooglePhotosLoginStart, String> {
+    cleanup_pending_oauth();
     let settings = load_settings(app_handle.clone())?;
     let (client_id, _) = auth_config(&settings)?;
     let state = random_urlsafe_string(32);
@@ -645,6 +681,7 @@ pub fn google_photos_start_login(app_handle: AppHandle) -> Result<GooglePhotosLo
             code_verifier: verifier,
             redirect_uri,
             result,
+            created_at: Instant::now(),
         },
     );
 
@@ -659,6 +696,7 @@ pub async fn google_photos_poll_login(
     app_handle: AppHandle,
     state: String,
 ) -> Result<GooglePhotosLoginPoll, String> {
+    cleanup_pending_oauth();
     let pending = {
         let pending_map = PENDING_OAUTH.lock().unwrap();
         pending_map.get(&state).cloned()
@@ -702,6 +740,7 @@ pub async fn google_photos_poll_login(
 
 #[tauri::command]
 pub fn google_photos_cancel_login(state: String) -> Result<(), String> {
+    cleanup_pending_oauth();
     PENDING_OAUTH.lock().unwrap().remove(&state);
     Ok(())
 }
