@@ -61,6 +61,7 @@ import {
   formatGooglePhotosError,
   isGooglePhotosReauthRequired,
   notifyGooglePhotosReauthRequired,
+  notifyGooglePhotosSettingsRequired,
 } from '../utils/googlePhotosAuth';
 
 const RIGHT_PANEL_ORDER = [
@@ -125,13 +126,10 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         const result: any = await invoke(Invokes.GooglePhotosSyncFiles, { paths });
         await refreshGooglePhotosSyncIndex();
         if (result?.failed?.length) {
-          toast.update(toastId, {
-            render: `Synced ${result.synced?.length || 0}; ${result.failed.length} failed.`,
-            type: 'error',
-            isLoading: false,
-            autoClose: 5000,
-            closeOnClick: true,
-          });
+          notifyGooglePhotosSettingsRequired(
+            `Synced ${result.synced?.length || 0}; ${result.failed.length} failed.`,
+            toastId,
+          );
         } else {
           toast.update(toastId, {
             render: paths.length === 1 ? 'Synced to Google Photos.' : `Synced ${paths.length} photos to Google Photos.`,
@@ -145,13 +143,10 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         if (isGooglePhotosReauthRequired(err)) {
           notifyGooglePhotosReauthRequired(toastId);
         } else {
-          toast.update(toastId, {
-            render: `Failed to sync to Google Photos: ${formatGooglePhotosError(err)}`,
-            type: 'error',
-            isLoading: false,
-            autoClose: 5000,
-            closeOnClick: true,
-          });
+          notifyGooglePhotosSettingsRequired(
+            `Failed to sync to Google Photos: ${formatGooglePhotosError(err)}`,
+            toastId,
+          );
         }
       }
     },
@@ -167,7 +162,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           props.handleLibraryRefresh();
         }
         if (result?.failed?.length) {
-          toast.error(`Unsynced ${result.synced?.length || 0}; ${result.failed.length} failed.`);
+          notifyGooglePhotosSettingsRequired(`Unsynced ${result.synced?.length || 0}; ${result.failed.length} failed.`);
         } else {
           toast.success(paths.length === 1 ? 'Unsynced from Google Photos.' : `Unsynced ${paths.length} photos.`);
         }
@@ -175,7 +170,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         if (isGooglePhotosReauthRequired(err)) {
           notifyGooglePhotosReauthRequired();
         } else {
-          toast.error(`Failed to unsync from Google Photos: ${formatGooglePhotosError(err)}`);
+          notifyGooglePhotosSettingsRequired(`Failed to unsync from Google Photos: ${formatGooglePhotosError(err)}`);
         }
       }
     },

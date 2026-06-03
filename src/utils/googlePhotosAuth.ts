@@ -27,6 +27,13 @@ export function openGooglePhotosSettings() {
   useUIStore.getState().requestSettingsPanel('googlePhotos');
 }
 
+function googlePhotosSettingsToastContent(message: string) {
+  return createElement('div', { className: 'space-y-2' }, [
+    createElement('div', { key: 'message' }, message),
+    createElement('div', { key: 'hint', className: 'text-sm font-semibold opacity-90' }, 'Open Google Photos Settings'),
+  ]);
+}
+
 function googlePhotosReauthToastContent() {
   return createElement('div', { className: 'space-y-3' }, [
     createElement(
@@ -60,6 +67,7 @@ export function notifyGooglePhotosReauthRequired(toastId?: string | number) {
       isLoading: false,
       autoClose: 10000,
       closeOnClick: false,
+      onClick: openGooglePhotosSettings,
     });
     return;
   }
@@ -67,5 +75,28 @@ export function notifyGooglePhotosReauthRequired(toastId?: string | number) {
   toast.error(render, {
     autoClose: 10000,
     closeOnClick: false,
+    onClick: openGooglePhotosSettings,
+  });
+}
+
+export function notifyGooglePhotosSettingsRequired(message: string, toastId?: string | number) {
+  const render = googlePhotosSettingsToastContent(message);
+
+  if (toastId !== undefined) {
+    toast.update(toastId, {
+      render,
+      type: 'error',
+      isLoading: false,
+      autoClose: 5000,
+      closeOnClick: true,
+      onClick: openGooglePhotosSettings,
+    });
+    return;
+  }
+
+  toast.error(render, {
+    autoClose: 5000,
+    closeOnClick: true,
+    onClick: openGooglePhotosSettings,
   });
 }

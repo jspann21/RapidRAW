@@ -18,6 +18,7 @@ import {
   formatGooglePhotosError,
   isGooglePhotosReauthRequired,
   notifyGooglePhotosReauthRequired,
+  notifyGooglePhotosSettingsRequired,
 } from '../utils/googlePhotosAuth';
 
 export interface AppNavigationProps {
@@ -418,11 +419,11 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     const { setGooglePhotos } = useGooglePhotosStore.getState();
 
     if (!appSettings?.googlePhotosIntegrationEnabled) {
-      toast.error('Enable Google Photos in Settings first.');
+      notifyGooglePhotosSettingsRequired('Enable Google Photos in Settings first.');
       return;
     }
     if (!appSettings?.googlePhotosAlbumId) {
-      toast.error('Create a Google Photos album in Settings first.');
+      notifyGooglePhotosSettingsRequired('Create a Google Photos album in Settings first.');
       return;
     }
 
@@ -468,7 +469,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       if (isGooglePhotosReauthRequired(err)) {
         notifyGooglePhotosReauthRequired();
       } else {
-        toast.error(`Failed to load Google Photos album: ${formatGooglePhotosError(err)}`);
+        notifyGooglePhotosSettingsRequired(`Failed to load Google Photos album: ${formatGooglePhotosError(err)}`);
       }
     } finally {
       useLibraryStore.getState().setLibrary({ isViewLoading: false });
