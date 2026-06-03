@@ -626,7 +626,7 @@ pub async fn invoke_generative_replace_with_mask_def(
     } else if settings.ai_provider.as_deref() == Some("ai-connector")
         && let Some(address) = settings.ai_connector_address
     {
-        let base_url = format!("http://{}", address);
+        let base_url = ai_connector::base_url_for_address(&address).map_err(|e| e.to_string())?;
 
         let mut rgba_mask = RgbaImage::new(img_w, img_h);
         for (x, y, luma_pixel) in mask_bitmap.enumerate_pixels() {

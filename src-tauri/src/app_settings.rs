@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
 
+use crate::ai_connector;
 use crate::app_state::AppState;
 use crate::secure_storage;
 
@@ -696,6 +697,15 @@ pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result
         secure_storage::set_secret(GOOGLE_PHOTOS_CLIENT_SECRET_KEY, &secret)?;
     }
     settings.google_photos_client_secret = None;
+
+    settings.ai_connector_address = settings
+        .ai_connector_address
+        .as_deref()
+        .map(str::trim)
+        .filter(|address| !address.is_empty())
+        .map(ai_connector::validate_address_format)
+        .transpose()
+        .map_err(|e| e.to_string())?;
 
     let json_string = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     fs::write(path, json_string).map_err(|e| e.to_string())?;
