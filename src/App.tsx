@@ -139,6 +139,7 @@ function App() {
     rightPanelWidth,
     compactEditorPanelHeightOverride,
     activeRightPanel,
+    settingsPanelRequest,
     setUI,
     setRightPanel,
   } = useUIStore(
@@ -153,6 +154,7 @@ function App() {
       rightPanelWidth: state.rightPanelWidth,
       compactEditorPanelHeightOverride: state.compactEditorPanelHeightOverride,
       activeRightPanel: state.activeRightPanel,
+      settingsPanelRequest: state.settingsPanelRequest,
       setUI: state.setUI,
       setRightPanel: state.setRightPanel,
     })),
@@ -309,6 +311,15 @@ function App() {
     clearThumbnailQueue,
     refs: navigationRefs,
   });
+
+  useEffect(() => {
+    if (!settingsPanelRequest) return;
+
+    setUI({ activeView: 'library', isFullScreen: false });
+    if (useEditorStore.getState().selectedImage) {
+      handleBackToLibrary();
+    }
+  }, [settingsPanelRequest, handleBackToLibrary, setUI]);
 
   const {
     handleRate,
