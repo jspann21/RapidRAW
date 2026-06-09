@@ -5,7 +5,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useEditorStore } from '../store/useEditorStore';
-import { useGooglePhotosStore } from '../store/useGooglePhotosStore';
+import { GOOGLE_PHOTOS_FOLDER_PATH, useGooglePhotosStore } from '../store/useGooglePhotosStore';
 import { THEMES, DEFAULT_THEME_ID, ThemeProps } from '../utils/themes';
 import { COPYABLE_ADJUSTMENT_KEYS } from '../utils/adjustments';
 import {
@@ -45,6 +45,10 @@ const getDefaultLanguage = (i18nInstance: any): string => {
     : supportedLanguages.includes(shortLang)
     ? shortLang
     : fallbackLang;
+};
+
+const isVirtualLibraryPath = (path: string | null | undefined): boolean => {
+  return !!path && (path.startsWith('Album: ') || path === GOOGLE_PHOTOS_FOLDER_PATH);
 };
 
 export const useAppInitialization = ({
@@ -190,7 +194,6 @@ export const useAppInitialization = ({
 
         if (!isAndroid && rootFolders.length > 0) {
           const currentPath = settings.lastFolderState?.currentFolderPath || rootFolders[0];
-          const isAlbum = currentPath.startsWith('Album: ');
           const command =
             settings.libraryViewMode === LibraryViewMode.Recursive
               ? Invokes.ListImagesRecursive
@@ -204,7 +207,7 @@ export const useAppInitialization = ({
               expandedFolders: settings.lastFolderState?.expandedFolders ?? rootFolders,
               showImageCounts: settings.enableFolderImageCounts ?? false,
             }),
-            images: isAlbum ? undefined : invoke(command, { path: currentPath }),
+            images: isVirtualLibraryPath(currentPath) ? undefined : invoke(command, { path: currentPath }),
           };
         }
 

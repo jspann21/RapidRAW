@@ -856,7 +856,7 @@ function rowAreEqual(prev: any, next: any) {
       if (prevImage.is_edited !== nextImage.is_edited) return false;
       if (prevImage.exif !== nextImage.exif) return false;
       if ((prev.activePath === path) !== (next.activePath === path)) return false;
-      if (prev.multiSelectedPaths.includes(path) !== next.multiSelectedPaths.includes(path)) return false;
+      if ((prev.multiSelectedSet?.has(path) ?? false) !== (next.multiSelectedSet?.has(path) ?? false)) return false;
       if (prev.imageRatings?.[path] !== next.imageRatings?.[path]) return false;
     }
   } else if (prevRow.type === 'header') {

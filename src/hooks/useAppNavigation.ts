@@ -643,7 +643,9 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         }
       }
 
-      if (pathToSelect && pathToSelect.startsWith('Album: ')) {
+      if (pathToSelect === GOOGLE_PHOTOS_FOLDER_PATH) {
+        await handleSelectGooglePhotosAlbum();
+      } else if (pathToSelect && pathToSelect.startsWith('Album: ')) {
         const activeAlbumId = folderState?.activeAlbumId;
         if (activeAlbumId) {
           try {

@@ -162,7 +162,7 @@ export default function LibraryGrid(props: any) {
     thumbnailSize,
     currentFolderPath,
     activePath,
-    multiSelectedPaths,
+    multiSelectedPaths = [],
     onContextMenu,
     onImageClick,
     onImageDoubleClick,
