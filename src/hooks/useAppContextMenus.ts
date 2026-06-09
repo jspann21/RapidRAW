@@ -67,17 +67,6 @@ import {
   notifyGooglePhotosSettingsRequired,
 } from '../utils/googlePhotosAuth';
 
-const RIGHT_PANEL_ORDER = [
-  Panel.Metadata,
-  Panel.Adjustments,
-  Panel.Crop,
-  Panel.Masks,
-  Panel.Ai,
-  Panel.Presets,
-  Panel.History,
-  Panel.Export,
-];
-
 export interface UseAppContextMenusProps {
   handleImageSelect: (path: string) => void;
   handleBackToLibrary: () => void;
@@ -288,7 +277,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         {
           label: t('contextMenus.editor.exportImage'),
           icon: FileInput,
-          onClick: () => setRightPanel(Panel.Export, RIGHT_PANEL_ORDER),
+          onClick: () => setRightPanel(Panel.Export),
         },
         { type: OPTION_SEPARATOR },
         {
@@ -302,7 +291,11 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         },
         { label: t('contextMenus.editor.redo'), icon: Redo, onClick: redo, disabled: !canRedo },
         { type: OPTION_SEPARATOR },
-        { label: t('contextMenus.editor.copyAdjustments'), icon: Copy, onClick: handleCopyAdjustments },
+        {
+          label: t('contextMenus.editor.copyAdjustments'),
+          icon: Copy,
+          onClick: () => handleCopyAdjustments(),
+        },
         {
           label: t('contextMenus.editor.pasteAdjustments'),
           icon: ClipboardPaste,
@@ -391,7 +384,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           submenu: [
             { label: t('contextMenus.editor.noLabel'), onClick: () => handleSetColorLabel(null) },
             ...COLOR_LABELS.map((label: Color) => ({
-              label: t(`menus.colors.${label.name}`),
+              label: t(`contextMenus.colors.${label.name}`),
               color: label.color,
               onClick: () => handleSetColorLabel(label.name),
             })),
@@ -635,7 +628,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
             props.handleImageSelect(path);
           }
           setLibrary({ multiSelectedPaths: finalSelection });
-          setRightPanel(Panel.Export, RIGHT_PANEL_ORDER);
+          setRightPanel(Panel.Export);
         } else {
           setLibrary({ multiSelectedPaths: finalSelection });
           setUI({ isLibraryExportPanelVisible: true });
@@ -689,7 +682,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               {
                 disabled: !isSingleSelection,
                 icon: Edit,
-                label: t('contextMenus.editor.frameImage'),
+                label: t('contextMenus.editor.editImage'),
                 onClick: () => props.handleImageSelect(finalSelection[0]),
               },
               { icon: FileInput, label: exportLabel, onClick: onExportClick },
@@ -875,7 +868,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           submenu: [
             { label: t('contextMenus.editor.noLabel'), onClick: () => handleSetColorLabel(null, finalSelection) },
             ...COLOR_LABELS.map((label: Color) => ({
-              label: t(`menus.colors.${label.name}`),
+              label: t(`contextMenus.colors.${label.name}`),
               color: label.color,
               onClick: () => handleSetColorLabel(label.name, finalSelection),
             })),

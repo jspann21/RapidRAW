@@ -58,17 +58,6 @@ import ImageLoaderManager from './components/managers/ImageLoaderManager';
 
 const CLERK_PUBLISHABLE_KEY = 'pk_test_YnJpZWYtc2Vhc25haWwtMTIuY2xlcmsuYWNjb3VudHMuZGV2JA'; // local dev key
 
-const RIGHT_PANEL_ORDER = [
-  Panel.Metadata,
-  Panel.Adjustments,
-  Panel.Crop,
-  Panel.Masks,
-  Panel.Ai,
-  Panel.Presets,
-  Panel.History,
-  Panel.Export,
-];
-
 const insertChildrenIntoTree = (node: any, targetPath: string, newChildren: any[]): any => {
   if (!node) return null;
 
@@ -691,7 +680,7 @@ function App() {
 
   const handleRightPanelSelect = useCallback(
     (panelId: Panel) => {
-      setRightPanel(panelId, RIGHT_PANEL_ORDER);
+      setRightPanel(panelId);
       setEditor({ activeMaskId: null, activeAiSubMaskId: null, isWbPickerActive: false });
     },
     [setRightPanel, setEditor],

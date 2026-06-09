@@ -866,6 +866,10 @@ export default function SettingsPanel({
     fetchLogPath();
   }, []);
 
+  useEffect(() => {
+    invoke<string[]>('get_lensfun_makers').then(setLensMakers).catch(console.error);
+  }, []);
+
   const handleProcessingSettingChange = async (key: string, value: any) => {
     setProcessingSettings((prev) => ({ ...prev, [key]: value }));
 
@@ -1804,6 +1808,14 @@ export default function SettingsPanel({
                         options={[
                           { value: 'en', label: 'English' },
                           { value: 'de', label: 'Deutsch' },
+                          { value: 'es', label: 'Español' },
+                          { value: 'fr', label: 'Français' },
+                          { value: 'it', label: 'Italiano' },
+                          { value: 'ja', label: '日本語' },
+                          { value: 'pl', label: 'Polski' },
+                          { value: 'pt', label: 'Português' },
+                          { value: 'ru', label: 'Русский' },
+                          { value: 'zh-CN', label: '简体中文' },
                         ]}
                         value={appSettings?.language || 'en'}
                         triggerClassName="bg-bg-primary"

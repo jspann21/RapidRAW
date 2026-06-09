@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Cloud, Image as ImageIcon, Folder, FolderOpen, Star as StarIcon, SlidersHorizontal } from 'lucide-react';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -42,7 +41,20 @@ const ThumbnailComponent = ({
 
   const [showPlaceholder, setShowPlaceholder] = useState(false);
   const [layers, setLayers] = useState<ImageLayer[]>([]);
-  const latestThumbDataRef = useRef<string | undefined>(undefined);
+
+  const [currentPath, setCurrentPath] = useState(path);
+  if (currentPath !== path) {
+    setCurrentPath(path);
+    setLayers([]);
+  }
+
+  const pathRef = useRef(path);
+  const hadDataOnPathChange = useRef(!!data);
+
+  if (pathRef.current !== path) {
+    pathRef.current = path;
+    hadDataOnPathChange.current = !!data;
+  }
 
   const { baseName, isVirtualCopy } = useMemo(() => {
     const fullFileName = path.split(/[\\/]/).pop() || '';
@@ -79,40 +91,38 @@ const ThumbnailComponent = ({
   useEffect(() => {
     if (!data) {
       setLayers([]);
-      latestThumbDataRef.current = undefined;
       return;
     }
 
-    if (data !== latestThumbDataRef.current) {
-      latestThumbDataRef.current = data;
+    setLayers((prev) => {
+      if (prev.some((l) => l.id === data)) return prev;
 
-      setLayers((prev) => {
-        if (prev.some((l) => l.id === data)) {
-          return prev;
+      if (prev.length === 0) {
+        if (hadDataOnPathChange.current) {
+          return [{ id: data, url: data, opacity: 1 }];
+        } else {
+          return [{ id: data, url: data, opacity: 0 }];
         }
-        return [...prev, { id: data, url: data, opacity: 0 }];
-      });
-    }
-  }, [data]);
+      }
+
+      return [...prev, { id: data, url: data, opacity: 0 }];
+    });
+  }, [data, path]);
 
   useEffect(() => {
     const layerToFadeIn = layers.find((l) => l.opacity === 0);
     if (layerToFadeIn) {
-      const timer = setTimeout(() => {
+      const frame = requestAnimationFrame(() => {
         setLayers((prev) => prev.map((l) => (l.id === layerToFadeIn.id ? { ...l, opacity: 1 } : l)));
-        onLoad(path);
-      }, 10);
-
-      return () => clearTimeout(timer);
+      });
+      return () => cancelAnimationFrame(frame);
     }
-  }, [layers, onLoad, path]);
+  }, [layers]);
 
   const handleTransitionEnd = useCallback((finishedId: string) => {
     setLayers((prev) => {
       const finishedIndex = prev.findIndex((l) => l.id === finishedId);
-      if (finishedIndex < 0 || prev.length <= 1) {
-        return prev;
-      }
+      if (finishedIndex < 0 || prev.length <= 1) return prev;
       return prev.slice(finishedIndex);
     });
   }, []);
@@ -131,6 +141,11 @@ const ThumbnailComponent = ({
   const isAlways = exifOverlay === ExifOverlay.Always;
   const isHover = exifOverlay === ExifOverlay.Hover;
 
+  const hasEditIcon = !!showEditIcon;
+  const hasColorLabel = !!colorLabel;
+  const hasRating = rating > 0;
+  const hasAnyOverlay = hasEditIcon || hasColorLabel || hasRating;
+
   return (
     <div
       className={clsx(
@@ -145,7 +160,7 @@ const ThumbnailComponent = ({
       onDoubleClick={() => onImageDoubleClick(path)}
       data-library-image-path={path}
     >
-      <div className="relative w-full flex-1 min-h-0 transition-all duration-300 z-0">
+      <div className="relative w-full flex-1 min-h-0 z-0 bg-surface">
         {layers.length > 0 && (
           <div className="absolute inset-0 w-full h-full">
             {layers.map((layer) => (
@@ -167,98 +182,69 @@ const ThumbnailComponent = ({
                   decoding="async"
                   loading="lazy"
                   src={layer.url}
+                  onLoad={() => onLoad(path)}
                 />
               </div>
             ))}
           </div>
         )}
 
-        <AnimatePresence>
-          {layers.length === 0 && showPlaceholder && (
-            <motion.div
-              className="absolute inset-0 w-full h-full flex items-center justify-center bg-surface transition-all duration-300"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.3, ease: 'easeInOut' }}
-            >
-              <ImageIcon className="text-text-secondary animate-pulse" />
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {layers.length === 0 && showPlaceholder && (
+          <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-surface">
+            <ImageIcon className="text-text-secondary animate-pulse" />
+          </div>
+        )}
       </div>
 
-      <AnimatePresence initial={false}>
-        {(colorLabel || rating > 0 || showEditIcon) && (
-          <motion.div
-            key="gradient-bg"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="absolute top-0 right-0 w-1/2 h-1/2 bg-linear-to-bl from-black/20 via-black/0 to-transparent pointer-events-none z-0"
-          />
+      <div
+        className={clsx(
+          'absolute top-0 right-0 w-1/2 h-1/2 bg-linear-to-bl from-black/20 via-black/0 to-transparent pointer-events-none z-0 transition-opacity duration-200 ease-in-out',
+          hasAnyOverlay ? 'opacity-100' : 'opacity-0',
         )}
-      </AnimatePresence>
+      />
 
       <div className="absolute top-1.5 right-1.5 flex items-center justify-end z-10 pointer-events-none">
-        <AnimatePresence initial={false}>
-          {(colorLabel || rating > 0 || showEditIcon) && (
-            <motion.div
-              key="badge-container"
-              initial={{ opacity: 0, scale: 0.8, y: -5 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.8, y: -5 }}
-              transition={{ duration: 0.25, type: 'spring', bounce: 0.3 }}
-              className="rounded-full px-1.5 py-0.5 flex items-center gap-1.5 backdrop-blur-md shadow-md bg-black/10"
-            >
-              <AnimatePresence initial={false}>
-                {showEditIcon && (
-                  <motion.div
-                    key="edited"
-                    initial={{ opacity: 0, scale: 0.5 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.5 }}
-                    transition={{ duration: 0.2 }}
-                    className="text-white pointer-events-auto flex items-center"
-                  >
-                    <SlidersHorizontal size={12} />
-                  </motion.div>
-                )}
-                {colorLabel && (
-                  <motion.div
-                    key="color"
-                    initial={{ opacity: 0, scale: 0.5 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.5 }}
-                    transition={{ duration: 0.2 }}
-                    className="flex items-center justify-center shrink-0 pointer-events-auto"
-                  >
-                    <div
-                      className="w-3 h-3 rounded-full ring-1 ring-black/20"
-                      style={{ backgroundColor: colorLabel.color }}
-                    />
-                  </motion.div>
-                )}
-                {rating > 0 && (
-                  <motion.div
-                    key="rating"
-                    initial={{ opacity: 0, scale: 0.5 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.5 }}
-                    transition={{ duration: 0.2 }}
-                    className="flex items-center gap-0.5 shrink-0 pointer-events-auto"
-                  >
-                    <Text variant={TextVariants.small} color={TextColors.white}>
-                      {rating}
-                    </Text>
-                    <StarIcon size={12} className="text-white fill-white" />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.div>
+        <div
+          className={clsx(
+            'rounded-full h-5 px-1.5 flex items-center justify-center gap-0 shadow-md bg-black/30 pointer-events-auto transition-all duration-200 ease-out origin-top-right',
+            hasAnyOverlay ? 'opacity-100 scale-100' : 'opacity-0 scale-90 pointer-events-none',
           )}
-        </AnimatePresence>
+        >
+          <div
+            className={clsx(
+              'text-white flex items-center transition-all duration-200 ease-out overflow-hidden',
+              hasEditIcon ? 'max-w-3 opacity-100 scale-100' : 'max-w-0 opacity-0 scale-75 pointer-events-none',
+            )}
+          >
+            <SlidersHorizontal size={12} />
+          </div>
+
+          <div
+            className={clsx(
+              'flex items-center justify-center shrink-0 transition-all duration-200 ease-out overflow-hidden',
+              hasColorLabel ? 'max-w-3 opacity-100 scale-100' : 'max-w-0 opacity-0 scale-75 pointer-events-none',
+              hasColorLabel && hasEditIcon ? 'ml-1.5' : 'ml-0',
+            )}
+          >
+            <div
+              className="w-3 h-3 rounded-full transition-colors duration-200"
+              style={{ backgroundColor: colorLabel ? colorLabel.color : 'transparent' }}
+            />
+          </div>
+
+          <div
+            className={clsx(
+              'flex items-center gap-0.5 shrink-0 transition-all duration-200 ease-out overflow-hidden',
+              hasRating ? 'max-w-7 opacity-100 scale-100' : 'max-w-0 opacity-0 scale-75 pointer-events-none',
+              hasRating && (hasEditIcon || hasColorLabel) ? 'ml-1.5' : 'ml-0',
+            )}
+          >
+            <Text variant={TextVariants.small} color={TextColors.white}>
+              {rating}
+            </Text>
+            <StarIcon size={12} className="text-white fill-white" />
+          </div>
+        </div>
       </div>
 
       <div
@@ -450,7 +436,20 @@ const ListItemComponent = ({
 
   const [showPlaceholder, setShowPlaceholder] = useState(false);
   const [layers, setLayers] = useState<ImageLayer[]>([]);
-  const latestThumbDataRef = useRef<string | undefined>(undefined);
+
+  const [currentPath, setCurrentPath] = useState(path);
+  if (currentPath !== path) {
+    setCurrentPath(path);
+    setLayers([]);
+  }
+
+  const pathRef = useRef(path);
+  const hadDataOnPathChange = useRef(!!data);
+
+  if (pathRef.current !== path) {
+    pathRef.current = path;
+    hadDataOnPathChange.current = !!data;
+  }
 
   const { baseName, isVirtualCopy } = useMemo(() => {
     const fullFileName = path.split(/[\\/]/).pop() || '';
@@ -497,30 +496,33 @@ const ListItemComponent = ({
   useEffect(() => {
     if (!data) {
       setLayers([]);
-      latestThumbDataRef.current = undefined;
       return;
     }
 
-    if (data !== latestThumbDataRef.current) {
-      latestThumbDataRef.current = data;
-      setLayers((prev) => {
-        if (prev.some((l) => l.id === data)) return prev;
-        return [...prev, { id: data, url: data, opacity: 0 }];
-      });
-    }
-  }, [data]);
+    setLayers((prev) => {
+      if (prev.some((l) => l.id === data)) return prev;
+
+      if (prev.length === 0) {
+        if (hadDataOnPathChange.current) {
+          return [{ id: data, url: data, opacity: 1 }];
+        } else {
+          return [{ id: data, url: data, opacity: 0 }];
+        }
+      }
+
+      return [...prev, { id: data, url: data, opacity: 0 }];
+    });
+  }, [data, path]);
 
   useEffect(() => {
     const layerToFadeIn = layers.find((l) => l.opacity === 0);
     if (layerToFadeIn) {
-      const timer = setTimeout(() => {
+      const frame = requestAnimationFrame(() => {
         setLayers((prev) => prev.map((l) => (l.id === layerToFadeIn.id ? { ...l, opacity: 1 } : l)));
-        onLoad(path);
-      }, 10);
-
-      return () => clearTimeout(timer);
+      });
+      return () => cancelAnimationFrame(frame);
     }
-  }, [layers, onLoad, path]);
+  }, [layers]);
 
   const handleTransitionEnd = useCallback((finishedId: string) => {
     setLayers((prev) => {
@@ -583,24 +585,18 @@ const ListItemComponent = ({
                     decoding="async"
                     loading="lazy"
                     src={layer.url}
+                    onLoad={() => onLoad(path)}
                   />
                 </div>
               ))}
             </div>
           )}
-          <AnimatePresence>
-            {layers.length === 0 && showPlaceholder && (
-              <motion.div
-                className="absolute inset-0 w-full h-full flex items-center justify-center"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3, ease: 'easeInOut' }}
-              >
-                <ImageIcon size={14} className="text-text-secondary animate-pulse" />
-              </motion.div>
-            )}
-          </AnimatePresence>
+
+          {layers.length === 0 && showPlaceholder && (
+            <div className="absolute inset-0 w-full h-full flex items-center justify-center">
+              <ImageIcon size={14} className="text-text-secondary animate-pulse" />
+            </div>
+          )}
         </div>
       </div>
 

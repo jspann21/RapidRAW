@@ -25,7 +25,7 @@ use crate::image_loader::{
     composite_patches_on_image, load_and_composite, load_base_image_from_bytes,
 };
 use crate::image_processing::{
-    AllAdjustments, Crop, GpuContext, ImageMetadata, RenderRequest, downscale_f32_image,
+    AllAdjustments, Crop, GpuContext, RenderRequest, downscale_f32_image,
     get_all_adjustments_from_json, get_or_init_gpu_context, process_and_get_dynamic_image,
     resolve_tonemapper_override_from_handle,
 };
@@ -771,13 +771,7 @@ pub async fn export_images(
                 let mut js_adjustments = match (is_current_edit, current_edit_adjustments) {
                     (true, Some(adjustments)) => adjustments,
                     _ => {
-                        let metadata: ImageMetadata = if sidecar_path.exists() {
-                            let file_content = fs::read_to_string(&sidecar_path)
-                                .map_err(|e| format!("Failed to read sidecar: {}", e))?;
-                            serde_json::from_str(&file_content).unwrap_or_default()
-                        } else {
-                            ImageMetadata::default()
-                        };
+                        let metadata = crate::exif_processing::load_sidecar(&sidecar_path);
                         metadata.adjustments
                     }
                 };
@@ -1185,12 +1179,7 @@ pub async fn estimate_export_sizes(
 
         (preview_byte_size as f64 * pixel_ratio) as usize
     } else {
-        let metadata: ImageMetadata = if sidecar_path.exists() {
-            let file_content = fs::read_to_string(&sidecar_path).map_err(|e| e.to_string())?;
-            serde_json::from_str(&file_content).unwrap_or_default()
-        } else {
-            ImageMetadata::default()
-        };
+        let metadata = crate::exif_processing::load_sidecar(&sidecar_path);
         let mut js_adjustments = metadata.adjustments;
 
         const ESTIMATE_DIM: u32 = 1280;

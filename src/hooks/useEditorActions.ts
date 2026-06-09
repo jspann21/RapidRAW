@@ -209,7 +209,8 @@ export function useEditorActions() {
     [setEditor],
   );
 
-  const handleCopyAdjustments = useCallback(async (sourcePath?: string) => {
+  const handleCopyAdjustments = useCallback(async (pathOrEvent?: string | any) => {
+    const sourcePath = typeof pathOrEvent === 'string' ? pathOrEvent : undefined;
     const { selectedImage, adjustments } = useEditorStore.getState();
     const { libraryActivePath, multiSelectedPaths, setLibrary } = useLibraryStore.getState();
     const targetPath =

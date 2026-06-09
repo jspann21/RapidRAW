@@ -177,6 +177,7 @@
       "copyAdjustments": "Copy Adjustments",
       "cullImage": "Cull Image",
       "denoise": "Denoise Image",
+      "editImage": "Edit Image",
       "exportImage": "Export Image",
       "frameImage": "Frame Image",
       "mergeHdr": "Merge to HDR",

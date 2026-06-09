@@ -17,6 +17,7 @@ import { useLibraryStore } from '../../../store/useLibraryStore';
 import {
   FilterCriteria,
   RawStatus,
+  EditedStatus,
   LibraryViewMode,
   SortCriteria,
   SortDirection,

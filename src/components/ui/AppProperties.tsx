@@ -262,11 +262,13 @@ export enum LibraryViewMode {
   Recursive = 'recursive',
 }
 
-export enum EditedStatus {
-  All = 'all',
-  EditedOnly = 'editedOnly',
-  UneditedOnly = 'uneditedOnly',
-}
+export const EditedStatus = {
+  All: 'all',
+  EditedOnly: 'editedOnly',
+  UneditedOnly: 'uneditedOnly',
+} as const;
+
+export type EditedStatus = (typeof EditedStatus)[keyof typeof EditedStatus];
 
 export interface FilterCriteria {
   colors: Array<string>;

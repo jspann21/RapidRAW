@@ -39,7 +39,12 @@ const getDefaultLanguage = (i18nInstance: any): string => {
       ? i18nInstance.options.fallbackLng
       : i18nInstance.options.fallbackLng?.[0] || 'en';
 
-  return supportedLanguages.includes(shortLang) ? shortLang : fallbackLang;
+  // Check full locale first (e.g., 'zh-CN'), then short code (e.g., 'zh')
+  return supportedLanguages.includes(browserLang)
+    ? browserLang
+    : supportedLanguages.includes(shortLang)
+    ? shortLang
+    : fallbackLang;
 };
 
 export const useAppInitialization = ({

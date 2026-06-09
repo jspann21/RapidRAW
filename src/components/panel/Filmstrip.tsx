@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { Image as ImageIcon, Star, SlidersHorizontal } from 'lucide-react';
-import { AnimatePresence, motion } from 'framer-motion';
 import clsx from 'clsx';
 import { Grid, useGridCallbackRef } from 'react-window';
 import { useTranslation } from 'react-i18next';
@@ -43,7 +42,7 @@ const FilmstripThumbnail = memo(
     onContextMenu,
     onImageSelect,
     thumbnailAspectRatio,
-    itemHeight,
+    itemHeight: _itemHeight,
     index,
     setRatio,
   }: {
@@ -61,19 +60,23 @@ const FilmstripThumbnail = memo(
     const { t } = useTranslation();
     const thumbData = useProcessStore((s) => s.thumbnails[imageFile.path]);
 
-    const [layers, setLayers] = useState<ImageLayer[]>(() => {
-      return thumbData ? [{ id: thumbData, url: thumbData, opacity: 1 }] : [];
-    });
+    const [layers, setLayers] = useState<ImageLayer[]>([]);
 
-    const latestThumbDataRef = useRef<string | undefined>(thumbData);
-    const isInitialLoad = useRef(true);
-    const prevPathRef = useRef(imageFile.path);
-
-    if (imageFile.path !== prevPathRef.current) {
-      prevPathRef.current = imageFile.path;
-      latestThumbDataRef.current = thumbData;
-      setLayers(thumbData ? [{ id: thumbData, url: thumbData, opacity: 1 }] : []);
+    const [currentPath, setCurrentPath] = useState(imageFile.path);
+    if (currentPath !== imageFile.path) {
+      setCurrentPath(imageFile.path);
+      setLayers([]);
     }
+
+    const pathRef = useRef(imageFile.path);
+    const hadDataOnPathChange = useRef(!!thumbData);
+
+    if (pathRef.current !== imageFile.path) {
+      pathRef.current = imageFile.path;
+      hadDataOnPathChange.current = !!thumbData;
+    }
+
+    const isInitialLoad = useRef(true);
 
     const { path, tags, is_edited: isEdited } = imageFile;
     const rating = imageRatings?.[path] || 0;
@@ -82,6 +85,11 @@ const FilmstripThumbnail = memo(
     const isVirtualCopy = path.includes('?vc=');
     const displayEditIcon = useSettingsStore((s) => s.appSettings?.displayEditIcon ?? true);
     const showEditIcon = isEdited && displayEditIcon;
+
+    const hasEditIcon = !!showEditIcon;
+    const hasColorLabel = !!colorLabel;
+    const hasRating = rating > 0;
+    const hasAnyOverlay = hasEditIcon || hasColorLabel || hasRating;
 
     const cleanPath = path.split('?')[0];
     const filename = cleanPath.split(/[\\/]/).pop() || '';
@@ -109,36 +117,31 @@ const FilmstripThumbnail = memo(
     useEffect(() => {
       if (!thumbData) {
         setLayers([]);
-        latestThumbDataRef.current = undefined;
         return;
       }
 
-      if (thumbData !== latestThumbDataRef.current) {
-        latestThumbDataRef.current = thumbData;
+      setLayers((prev) => {
+        if (prev.some((l) => l.id === thumbData)) return prev;
 
-        const img = new Image();
-        img.src = thumbData;
-        img.onload = () => {
-          if (img.src === latestThumbDataRef.current) {
-            setLayers((prev) => {
-              if (prev.some((l) => l.id === img.src)) return prev;
-              return [...prev, { id: img.src, url: img.src, opacity: 0 }];
-            });
+        if (prev.length === 0) {
+          if (hadDataOnPathChange.current) {
+            return [{ id: thumbData, url: thumbData, opacity: 1 }];
+          } else {
+            return [{ id: thumbData, url: thumbData, opacity: 0 }];
           }
-        };
-        return () => {
-          img.onload = null;
-        };
-      }
-    }, [thumbData, layers.length]);
+        }
+
+        return [...prev, { id: thumbData, url: thumbData, opacity: 0 }];
+      });
+    }, [thumbData, imageFile.path]);
 
     useEffect(() => {
       const layerToFadeIn = layers.find((l) => l.opacity === 0);
       if (layerToFadeIn) {
-        const timer = setTimeout(() => {
+        const frame = requestAnimationFrame(() => {
           setLayers((prev) => prev.map((l) => (l.id === layerToFadeIn.id ? { ...l, opacity: 1 } : l)));
-        }, 10);
-        return () => clearTimeout(timer);
+        });
+        return () => cancelAnimationFrame(frame);
       }
     }, [layers]);
 
@@ -160,7 +163,7 @@ const FilmstripThumbnail = memo(
     const dragCount = isSelected ? useLibraryStore.getState().multiSelectedPaths.length : 1;
 
     return (
-      <motion.div
+      <div
         className={clsx(
           'h-full w-full rounded-md overflow-hidden cursor-pointer shrink-0 group relative transition-all duration-150 bg-surface',
           ringClass,
@@ -216,71 +219,55 @@ const FilmstripThumbnail = memo(
           </div>
         )}
 
-        <AnimatePresence initial={false}>
-          {(colorLabel || rating > 0 || showEditIcon) && (
-            <motion.div
-              key="gradient"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="absolute top-0 right-0 w-3/4 h-3/4 bg-linear-to-bl from-black/25 via-black/0 to-transparent pointer-events-none z-0"
-            />
+        <div
+          className={clsx(
+            'absolute top-0 right-0 w-3/4 h-3/4 bg-linear-to-bl from-black/25 via-black/0 to-transparent pointer-events-none z-0 transition-opacity duration-200 ease-in-out',
+            hasAnyOverlay ? 'opacity-100' : 'opacity-0',
           )}
-        </AnimatePresence>
+        />
 
-        <div className="absolute top-1 right-1 z-10 flex justify-end pointer-events-none">
-          <AnimatePresence initial={false}>
-            {(colorLabel || rating > 0 || showEditIcon) && (
-              <motion.div
-                key="badge-container"
-                initial={{ opacity: 0, scale: 0.8, y: -5 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.8, y: -5 }}
-                transition={{ duration: 0.25, type: 'spring', bounce: 0.3 }}
-                className="bg-primary rounded-full px-1.5 py-0.5 text-xs text-white flex items-center gap-1.5 backdrop-blur-xs shadow-md"
-              >
-                <AnimatePresence initial={false}>
-                  {showEditIcon && (
-                    <motion.div
-                      key="edited"
-                      initial={{ opacity: 0, scale: 0.5 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.5 }}
-                      transition={{ duration: 0.2 }}
-                      className="text-white pointer-events-auto flex items-center"
-                    >
-                      <SlidersHorizontal size={12} />
-                    </motion.div>
-                  )}
-                  {colorLabel && (
-                    <motion.div
-                      key="color"
-                      initial={{ opacity: 0, scale: 0.5 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.5 }}
-                      transition={{ duration: 0.2 }}
-                      className="w-3 h-3 rounded-full ring-1 ring-black/20 pointer-events-auto shrink-0"
-                      style={{ backgroundColor: colorLabel.color }}
-                    />
-                  )}
-                  {rating > 0 && (
-                    <motion.div
-                      key="rating"
-                      initial={{ opacity: 0, scale: 0.5 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.5 }}
-                      transition={{ duration: 0.2 }}
-                      className="flex items-center gap-0.5 pointer-events-auto"
-                    >
-                      <span>{rating}</span>
-                      <Star size={12} className="fill-white text-white" />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
+        <div className="absolute top-1 right-1 flex items-center justify-end z-10 pointer-events-none">
+          <div
+            className={clsx(
+              'rounded-full h-5 px-1.5 flex items-center justify-center gap-0 shadow-md bg-black/30 pointer-events-auto transition-all duration-200 ease-out origin-top-right',
+              hasAnyOverlay ? 'opacity-100 scale-100' : 'opacity-0 scale-90 pointer-events-none',
             )}
-          </AnimatePresence>
+          >
+            <div
+              className={clsx(
+                'text-white flex items-center transition-all duration-200 ease-out overflow-hidden',
+                hasEditIcon ? 'max-w-3 opacity-100 scale-100' : 'max-w-0 opacity-0 scale-75 pointer-events-none',
+              )}
+            >
+              <SlidersHorizontal size={12} />
+            </div>
+
+            <div
+              className={clsx(
+                'flex items-center justify-center shrink-0 transition-all duration-200 ease-out overflow-hidden',
+                hasColorLabel ? 'max-w-3 opacity-100 scale-100' : 'max-w-0 opacity-0 scale-75 pointer-events-none',
+                hasColorLabel && hasEditIcon ? 'ml-1.5' : 'ml-0',
+              )}
+            >
+              <div
+                className="w-3 h-3 rounded-full transition-colors duration-200"
+                style={{ backgroundColor: colorLabel ? colorLabel.color : 'transparent' }}
+              />
+            </div>
+
+            <div
+              className={clsx(
+                'flex items-center gap-0.5 shrink-0 transition-all duration-200 ease-out overflow-hidden',
+                hasRating ? 'max-w-7 opacity-100 scale-100' : 'max-w-0 opacity-0 scale-75 pointer-events-none',
+                hasRating && (hasEditIcon || hasColorLabel) ? 'ml-1.5' : 'ml-0',
+              )}
+            >
+              <Text variant={TextVariants.small} color={TextColors.white}>
+                {rating}
+              </Text>
+              <Star size={12} className="text-white fill-white" />
+            </div>
+          </div>
         </div>
 
         {isVirtualCopy && (
@@ -293,7 +280,7 @@ const FilmstripThumbnail = memo(
                 variant={TextVariants.small}
                 color={TextColors.white}
                 weight={TextWeights.bold}
-                className="shadow-md text-[10px] px-1 py-0.5 rounded-full backdrop-blur-xs"
+                className="shadow-md text-[10px] px-1 py-0.5 rounded-full bg-black/30"
                 data-tooltip={t('ui.filmstrip.tooltips.virtualCopy')}
               >
                 {t('ui.filmstrip.virtualCopyAbbreviation')}
@@ -301,7 +288,7 @@ const FilmstripThumbnail = memo(
             </div>
           </>
         )}
-      </motion.div>
+      </div>
     );
   },
 );
