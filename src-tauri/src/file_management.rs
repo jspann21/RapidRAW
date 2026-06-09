@@ -297,19 +297,6 @@ pub struct ImageFile {
     is_virtual_copy: bool,
 }
 
-fn load_image_list_metadata(
-    image_path: &Path,
-    sidecar_path: &Path,
-    settings: &AppSettings,
-) -> (bool, Option<Vec<String>>, u8) {
-    let metadata = crate::exif_processing::load_sidecar_listing_metadata(sidecar_path);
-    let is_raw = crate::formats::is_raw_file(image_path);
-    let tm_override = crate::image_processing::resolve_tonemapper_override(settings, is_raw);
-    let is_edited =
-        crate::image_processing::is_image_edited(&metadata.adjustments, is_raw, tm_override);
-    (is_edited, metadata.tags, metadata.rating)
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportSettings {
@@ -518,6 +505,7 @@ pub async fn update_exif_fields(
 #[tauri::command]
 pub fn list_images_in_dir(path: String, app_handle: AppHandle) -> Result<Vec<ImageFile>, String> {
     let settings = load_settings(app_handle).unwrap_or_default();
+    let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
 
     let entries = fs::read_dir(&path).map_err(|e| e.to_string())?;
     let mut images = Vec::new();
@@ -589,8 +577,26 @@ pub fn list_images_in_dir(path: String, app_handle: AppHandle) -> Result<Vec<Ima
 
                 let sidecar_path = path_buf.with_file_name(sidecar_filename);
 
-                let (is_edited, tags, rating) =
-                    load_image_list_metadata(&path_buf, &sidecar_path, &settings);
+                let (is_edited, tags, rating) = {
+                    let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+
+                    if enable_xmp_sync
+                        && sync_metadata_from_xmp(&path_buf, &mut metadata)
+                        && let Ok(json) = serde_json::to_string_pretty(&metadata)
+                    {
+                        let _ = fs::write(&sidecar_path, json);
+                    }
+
+                    let is_raw = crate::formats::is_raw_file(&path_str);
+                    let tm_override =
+                        crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
+                    let edited = crate::image_processing::is_image_edited(
+                        &metadata.adjustments,
+                        is_raw,
+                        tm_override,
+                    );
+                    (edited, metadata.tags, metadata.rating)
+                };
 
                 file_results.push(ImageFile {
                     path: virtual_path,
@@ -616,6 +622,7 @@ pub fn list_images_recursive(
     app_handle: AppHandle,
 ) -> Result<Vec<ImageFile>, String> {
     let settings = load_settings(app_handle).unwrap_or_default();
+    let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
 
     let root_path = Path::new(&path);
     let mut images = Vec::new();
@@ -693,8 +700,26 @@ pub fn list_images_recursive(
 
                 let sidecar_path = path_buf.with_file_name(sidecar_filename);
 
-                let (is_edited, tags, rating) =
-                    load_image_list_metadata(&path_buf, &sidecar_path, &settings);
+                let (is_edited, tags, rating) = {
+                    let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+
+                    if enable_xmp_sync
+                        && sync_metadata_from_xmp(&path_buf, &mut metadata)
+                        && let Ok(json) = serde_json::to_string_pretty(&metadata)
+                    {
+                        let _ = fs::write(&sidecar_path, json);
+                    }
+
+                    let is_raw = crate::formats::is_raw_file(&path_str);
+                    let tm_override =
+                        crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
+                    let edited = crate::image_processing::is_image_edited(
+                        &metadata.adjustments,
+                        is_raw,
+                        tm_override,
+                    );
+                    (edited, metadata.tags, metadata.rating)
+                };
 
                 file_results.push(ImageFile {
                     path: virtual_path,
@@ -920,6 +945,7 @@ pub fn get_album_images(
     app_handle: AppHandle,
 ) -> Result<Vec<ImageFile>, String> {
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
 
     let result_list: Vec<ImageFile> = paths
         .into_par_iter()
@@ -938,8 +964,26 @@ pub fn get_album_images(
 
             let is_virtual_copy = virtual_path.contains("?vc=");
 
-            let (is_edited, tags, rating) =
-                load_image_list_metadata(&source_path, &sidecar_path, &settings);
+            let (is_edited, tags, rating) = {
+                let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+
+                if enable_xmp_sync
+                    && sync_metadata_from_xmp(&source_path, &mut metadata)
+                    && let Ok(json) = serde_json::to_string_pretty(&metadata)
+                {
+                    let _ = fs::write(&sidecar_path, json);
+                }
+
+                let is_raw = crate::formats::is_raw_file(&source_path);
+                let tm_override =
+                    crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
+                let edited = crate::image_processing::is_image_edited(
+                    &metadata.adjustments,
+                    is_raw,
+                    tm_override,
+                );
+                (edited, metadata.tags, metadata.rating)
+            };
 
             Some(ImageFile {
                 path: virtual_path,
