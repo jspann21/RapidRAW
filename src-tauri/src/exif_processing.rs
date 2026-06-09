@@ -12,6 +12,17 @@ use little_exif::filetype::FileExtension;
 use little_exif::metadata::Metadata;
 use little_exif::rational::{iR64, uR64};
 use rawler::decoders::RawMetadata;
+use serde::Deserialize;
+
+#[derive(Deserialize, Default)]
+pub struct SidecarListingMetadata {
+    #[serde(default)]
+    pub rating: u8,
+    #[serde(default)]
+    pub adjustments: serde_json::Value,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+}
 
 pub fn truncate_large_exif(value: &str) -> String {
     if value.len() <= 500 {
@@ -67,6 +78,18 @@ pub fn load_sidecar(sidecar_path: &Path) -> ImageMetadata {
     }
 
     meta
+}
+
+pub fn load_sidecar_listing_metadata(sidecar_path: &Path) -> SidecarListingMetadata {
+    if !sidecar_path.exists() {
+        return SidecarListingMetadata::default();
+    }
+
+    let Ok(content) = fs::read_to_string(sidecar_path) else {
+        return SidecarListingMetadata::default();
+    };
+
+    serde_json::from_str::<SidecarListingMetadata>(&content).unwrap_or_default()
 }
 
 fn to_ur64(val: &exif::Rational) -> uR64 {
