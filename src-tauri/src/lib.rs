@@ -255,6 +255,12 @@ fn cancel_thumbnail_generation(
     state
         .thumbnail_cancellation_token
         .store(true, Ordering::SeqCst);
+    state.thumbnail_generation.fetch_add(1, Ordering::SeqCst);
+
+    if let Ok(mut queue) = state.thumbnail_manager.queue.lock() {
+        queue.clear();
+    }
+    state.thumbnail_manager.cvar.notify_all();
 
     let mut tracker = state.thumbnail_progress.lock().unwrap();
     tracker.total = 0;
@@ -2256,6 +2262,7 @@ pub fn run() {
             lut_cache: Mutex::new(HashMap::new()),
             initial_file_path: Mutex::new(None),
             thumbnail_cancellation_token: Arc::new(AtomicBool::new(false)),
+            thumbnail_generation: Arc::new(AtomicUsize::new(0)),
             thumbnail_progress: Mutex::new(ThumbnailProgressTracker { total: 0, completed: 0 }),
             preview_worker_tx: Mutex::new(None),
             analytics_worker_tx: Mutex::new(None),

@@ -7,6 +7,7 @@ use std::io::Cursor;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::thread;
 
 use anyhow::Result;
@@ -1552,15 +1553,26 @@ fn encode_thumbnail(image: &DynamicImage, target_width: u32) -> Result<Vec<u8>> 
     Ok(buf.into_inner())
 }
 
+fn thumbnail_generation_cancelled(state: &AppState, generation: usize) -> bool {
+    state.thumbnail_cancellation_token.load(Ordering::SeqCst)
+        || state.thumbnail_generation.load(Ordering::SeqCst) != generation
+}
+
 fn generate_single_thumbnail_and_cache(
     path_str: &str,
     thumb_cache_dir: &Path,
     gpu_context: Option<&GpuContext>,
     preloaded_image: Option<&DynamicImage>,
     force_regenerate: bool,
+    thumbnail_generation: usize,
     app_handle: &AppHandle,
     settings: &AppSettings,
 ) -> Option<(String, u8, bool)> {
+    let state = app_handle.state::<AppState>();
+    if thumbnail_generation_cancelled(&state, thumbnail_generation) {
+        return None;
+    }
+
     let (_, sidecar_path) = parse_virtual_path(path_str);
 
     let (rating, is_edited, adjustments_bytes) =
@@ -1590,6 +1602,9 @@ fn generate_single_thumbnail_and_cache(
         && cache_path.exists()
         && let Ok(data) = fs::read(&cache_path)
     {
+        if thumbnail_generation_cancelled(&state, thumbnail_generation) {
+            return None;
+        }
         let base64_str = general_purpose::STANDARD.encode(&data);
         return Some((
             format!("data:image/jpeg;base64,{}", base64_str),
@@ -1604,6 +1619,9 @@ fn generate_single_thumbnail_and_cache(
         generate_thumbnail_data(path_str, gpu_context, preloaded_image, app_handle)
         && let Ok(thumb_data) = encode_thumbnail(&thumb_image, target_width)
     {
+        if thumbnail_generation_cancelled(&state, thumbnail_generation) {
+            return None;
+        }
         let _ = fs::write(&cache_path, &thumb_data);
         let base64_str = general_purpose::STANDARD.encode(&thumb_data);
         return Some((
@@ -1646,6 +1664,16 @@ pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
                 };
 
                 let state = app_clone.state::<crate::AppState>();
+                let thumbnail_generation = state.thumbnail_generation.load(Ordering::SeqCst);
+                if thumbnail_generation_cancelled(&state, thumbnail_generation) {
+                    manager_clone
+                        .processing_now
+                        .lock()
+                        .unwrap()
+                        .remove(&path_to_process);
+                    continue;
+                }
+
                 let gpu_context =
                     crate::gpu_processing::get_or_init_gpu_context(&state, &app_clone).ok();
 
@@ -1656,11 +1684,14 @@ pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
                         gpu_context.as_ref(),
                         None,
                         false,
+                        thumbnail_generation,
                         &app_clone,
                         &worker_settings,
                     );
 
-                    if let Some((thumbnail_data, rating, is_edited)) = result {
+                    if !thumbnail_generation_cancelled(&state, thumbnail_generation)
+                        && let Some((thumbnail_data, rating, is_edited)) = result
+                    {
                         let _ = app_clone.emit(
                             "thumbnail-generated",
                             serde_json::json!({
@@ -1671,7 +1702,9 @@ pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
                             }),
                         );
                     }
-                    increment_thumbnail_progress(&state, &app_clone);
+                    if !thumbnail_generation_cancelled(&state, thumbnail_generation) {
+                        increment_thumbnail_progress(&state, &app_clone);
+                    }
                 }
                 manager_clone
                     .processing_now
@@ -1693,6 +1726,10 @@ pub fn update_thumbnail_queue(
     let mut queue = state.thumbnail_manager.queue.lock().unwrap();
 
     if paths.is_empty() {
+        state
+            .thumbnail_cancellation_token
+            .store(true, Ordering::SeqCst);
+        state.thumbnail_generation.fetch_add(1, Ordering::SeqCst);
         queue.clear();
         let mut tracker = state.thumbnail_progress.lock().unwrap();
         tracker.total = 0;
@@ -1706,6 +1743,10 @@ pub fn update_thumbnail_queue(
         state.thumbnail_manager.cvar.notify_all();
         return Ok(());
     }
+
+    state
+        .thumbnail_cancellation_token
+        .store(false, Ordering::SeqCst);
 
     let mut unique_paths = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -1745,6 +1786,10 @@ pub fn update_thumbnail_queue(
 }
 
 pub fn add_to_thumbnail_queue(state: &AppState, count: usize, app_handle: &AppHandle) {
+    state
+        .thumbnail_cancellation_token
+        .store(false, Ordering::SeqCst);
+
     let mut tracker = state.thumbnail_progress.lock().unwrap();
     tracker.total += count;
     let current = tracker.completed;
@@ -2298,6 +2343,7 @@ pub fn save_metadata_and_update_thumbnail(
     let path_clone = path.clone();
 
     add_to_thumbnail_queue(&state, 1, &app_handle);
+    let thumbnail_generation = state.thumbnail_generation.load(Ordering::SeqCst);
 
     thread::spawn(move || {
         let state = app_handle_clone.state::<AppState>();
@@ -2312,7 +2358,9 @@ pub fn save_metadata_and_update_thumbnail(
                     e
                 );
                 emit_thumbnail_cache_setup_error(&app_handle_clone, &path_clone, &e);
-                increment_thumbnail_progress(&state, &app_handle_clone);
+                if !thumbnail_generation_cancelled(&state, thumbnail_generation) {
+                    increment_thumbnail_progress(&state, &app_handle_clone);
+                }
                 return;
             }
         };
@@ -2323,18 +2371,23 @@ pub fn save_metadata_and_update_thumbnail(
             gpu_context.as_ref(),
             preloaded_image_option.as_deref(),
             true,
+            thumbnail_generation,
             &app_handle_clone,
             &settings,
         );
 
-        if let Some((thumbnail_data, rating, is_edited)) = result {
+        if !thumbnail_generation_cancelled(&state, thumbnail_generation)
+            && let Some((thumbnail_data, rating, is_edited)) = result
+        {
             let _ = app_handle_clone.emit(
                 "thumbnail-generated",
                 serde_json::json!({ "path": path_clone, "data": thumbnail_data, "rating": rating, "is_edited": is_edited }),
             );
         }
 
-        increment_thumbnail_progress(&state, &app_handle_clone);
+        if !thumbnail_generation_cancelled(&state, thumbnail_generation) {
+            increment_thumbnail_progress(&state, &app_handle_clone);
+        }
     });
 
     Ok(())
@@ -2414,6 +2467,7 @@ pub async fn apply_adjustments_to_paths(
         };
 
         let gpu_context = gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
+        let thumbnail_generation = state.thumbnail_generation.load(Ordering::SeqCst);
 
         paths.par_iter().for_each(|path_str| {
             let result = generate_single_thumbnail_and_cache(
@@ -2422,18 +2476,23 @@ pub async fn apply_adjustments_to_paths(
                 gpu_context.as_ref(),
                 None,
                 true,
+                thumbnail_generation,
                 &app_handle,
                 &settings,
             );
 
-            if let Some((thumbnail_data, rating, is_edited)) = result {
+            if !thumbnail_generation_cancelled(&state, thumbnail_generation)
+                && let Some((thumbnail_data, rating, is_edited)) = result
+            {
                 let _ = app_handle.emit(
                     "thumbnail-generated",
                     serde_json::json!({ "path": path_str, "data": thumbnail_data, "rating": rating, "is_edited": is_edited  }),
                 );
             }
 
-            increment_thumbnail_progress(&state, &app_handle);
+            if !thumbnail_generation_cancelled(&state, thumbnail_generation) {
+                increment_thumbnail_progress(&state, &app_handle);
+            }
         });
     });
 
@@ -2487,6 +2546,7 @@ pub async fn reset_adjustments_for_paths(
         };
 
         let gpu_context = gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
+        let thumbnail_generation = state.thumbnail_generation.load(Ordering::SeqCst);
 
         paths.par_iter().for_each(|path_str| {
             let result = generate_single_thumbnail_and_cache(
@@ -2495,18 +2555,23 @@ pub async fn reset_adjustments_for_paths(
                 gpu_context.as_ref(),
                 None,
                 true,
+                thumbnail_generation,
                 &app_handle,
                 &settings,
             );
 
-            if let Some((thumbnail_data, rating, is_edited)) = result {
+            if !thumbnail_generation_cancelled(&state, thumbnail_generation)
+                && let Some((thumbnail_data, rating, is_edited)) = result
+            {
                 let _ = app_handle.emit(
                     "thumbnail-generated",
                     serde_json::json!({ "path": path_str, "data": thumbnail_data, "rating": rating, "is_edited": is_edited }),
                 );
             }
 
-            increment_thumbnail_progress(&state, &app_handle);
+            if !thumbnail_generation_cancelled(&state, thumbnail_generation) {
+                increment_thumbnail_progress(&state, &app_handle);
+            }
         });
     });
 
@@ -2542,6 +2607,7 @@ pub async fn apply_auto_adjustments_to_paths(
         };
 
         let gpu_context = gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
+        let thumbnail_generation = state.thumbnail_generation.load(Ordering::SeqCst);
 
         paths.par_iter().for_each(|path| {
             let loaded_image: Option<DynamicImage> = (|| -> Result<DynamicImage, String> {
@@ -2609,18 +2675,23 @@ pub async fn apply_auto_adjustments_to_paths(
                 gpu_context.as_ref(),
                 loaded_image.as_ref(),
                 true,
+                thumbnail_generation,
                 &app_handle,
                 &settings,
             );
 
-            if let Some((thumbnail_data, rating, is_edited)) = result {
+            if !thumbnail_generation_cancelled(&state, thumbnail_generation)
+                && let Some((thumbnail_data, rating, is_edited)) = result
+            {
                 let _ = app_handle.emit(
                     "thumbnail-generated",
                     serde_json::json!({ "path": path, "data": thumbnail_data, "rating": rating, "is_edited": is_edited  }),
                 );
             }
 
-            increment_thumbnail_progress(&state, &app_handle);
+            if !thumbnail_generation_cancelled(&state, thumbnail_generation) {
+                increment_thumbnail_progress(&state, &app_handle);
+            }
         });
     });
 
