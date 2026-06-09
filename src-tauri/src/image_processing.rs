@@ -53,7 +53,11 @@ pub struct ImageMetadata {
     pub version: u32,
     pub rating: u8,
     pub adjustments: Value,
-    #[serde(default, rename = "editHistory", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "editHistory",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub edit_history: Option<Value>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
