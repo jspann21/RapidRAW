@@ -563,6 +563,7 @@ fn add_runtime_dir_candidate(dirs: &mut Vec<PathBuf>, path: impl AsRef<Path>) {
     dirs.push(path.join("bin"));
 }
 
+#[cfg(target_os = "windows")]
 fn add_dirs_containing_any(
     dirs: &mut Vec<PathBuf>,
     root: &Path,
@@ -601,56 +602,54 @@ fn add_dirs_containing_any(
     }
 }
 
+#[cfg(target_os = "windows")]
 fn add_common_cuda_dirs(dirs: &mut Vec<PathBuf>) {
-    #[cfg(target_os = "windows")]
-    {
-        for env_name in [
-            "CUDA_PATH",
-            "CUDA_PATH_V12_9",
-            "CUDA_PATH_V12_8",
-            "CUDA_PATH_V12_7",
-            "CUDA_PATH_V12_6",
-            "CUDA_PATH_V12_5",
-            "CUDA_PATH_V12_4",
-            "CUDA_PATH_V12_3",
-            "CUDA_PATH_V12_2",
-            "CUDA_PATH_V12_1",
-            "CUDA_PATH_V12_0",
-        ] {
-            if let Some(value) = std::env::var_os(env_name) {
-                dirs.push(PathBuf::from(value).join("bin"));
+    for env_name in [
+        "CUDA_PATH",
+        "CUDA_PATH_V12_9",
+        "CUDA_PATH_V12_8",
+        "CUDA_PATH_V12_7",
+        "CUDA_PATH_V12_6",
+        "CUDA_PATH_V12_5",
+        "CUDA_PATH_V12_4",
+        "CUDA_PATH_V12_3",
+        "CUDA_PATH_V12_2",
+        "CUDA_PATH_V12_1",
+        "CUDA_PATH_V12_0",
+    ] {
+        if let Some(value) = std::env::var_os(env_name) {
+            dirs.push(PathBuf::from(value).join("bin"));
+        }
+    }
+
+    let cuda_root = Path::new("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA");
+    if let Ok(entries) = fs::read_dir(cuda_root) {
+        let mut versions = entries
+            .flatten()
+            .map(|entry| entry.path().join("bin"))
+            .filter(|path| path.exists())
+            .collect::<Vec<_>>();
+        versions.sort_by(|a, b| b.cmp(a));
+        dirs.extend(versions);
+    }
+
+    for root in [
+        "C:/Program Files/NVIDIA/CUDNN",
+        "C:/Program Files/NVIDIA/cuDNN",
+        "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDNN",
+    ] {
+        if let Ok(entries) = fs::read_dir(root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                add_runtime_dir_candidate(dirs, path);
             }
         }
-
-        let cuda_root = Path::new("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA");
-        if let Ok(entries) = fs::read_dir(cuda_root) {
-            let mut versions = entries
-                .flatten()
-                .map(|entry| entry.path().join("bin"))
-                .filter(|path| path.exists())
-                .collect::<Vec<_>>();
-            versions.sort_by(|a, b| b.cmp(a));
-            dirs.extend(versions);
-        }
-
-        for root in [
-            "C:/Program Files/NVIDIA/CUDNN",
-            "C:/Program Files/NVIDIA/cuDNN",
-            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDNN",
-        ] {
-            if let Ok(entries) = fs::read_dir(root) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    add_runtime_dir_candidate(dirs, path);
-                }
-            }
-            add_dirs_containing_any(
-                dirs,
-                Path::new(root),
-                &ort::execution_providers::cuda::CUDNN_DYLIBS,
-                4,
-            );
-        }
+        add_dirs_containing_any(
+            dirs,
+            Path::new(root),
+            ort::execution_providers::cuda::CUDNN_DYLIBS,
+            4,
+        );
     }
 }
 
@@ -707,6 +706,7 @@ fn local_ai_runtime_dirs(app_handle: &tauri::AppHandle) -> Vec<PathBuf> {
     }
 
     add_env_path_dirs(&mut dirs, "PATH");
+    #[cfg(target_os = "windows")]
     add_common_cuda_dirs(&mut dirs);
     dedupe_dirs(dirs)
 }

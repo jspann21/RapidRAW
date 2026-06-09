@@ -479,9 +479,8 @@ pub async fn start_runtime(
         .spawn()
         .map_err(|e| anyhow!("Failed to start ComfyUI runtime: {}", e))?;
     *process.lock().unwrap() = Some(LocalComfyProcess { child, port });
-    wait_for_runtime(port).await.map_err(|e| {
+    wait_for_runtime(port).await.inspect_err(|_| {
         let _ = stop_runtime(process);
-        e
     })?;
     let _ = app_handle.emit(
         "local-ai-task-progress",
