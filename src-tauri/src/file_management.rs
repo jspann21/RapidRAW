@@ -1,10 +1,8 @@
 use memmap2::{Mmap, MmapOptions};
 use std::borrow::Cow;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
-use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
@@ -1477,16 +1475,9 @@ pub fn generate_thumbnail_data(
             None
         });
 
-        let mut hasher = DefaultHasher::new();
-        path_str.hash(&mut hasher);
-        meta.adjustments.to_string().hash(&mut hasher);
-        let unique_hash = hasher.finish();
-
-        if let Ok(processed_image) = gpu_processing::process_and_get_dynamic_image(
+        if let Ok(processed_image) = gpu_processing::process_and_get_dynamic_image_isolated(
             context,
-            &state,
             cropped_preview.as_ref(),
-            unique_hash,
             gpu_processing::RenderRequest {
                 adjustments: gpu_adjustments,
                 mask_bitmaps: &mask_bitmaps,

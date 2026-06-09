@@ -1595,6 +1595,76 @@ pub fn process_and_get_dynamic_image(
     )
 }
 
+pub fn process_and_get_dynamic_image_isolated(
+    context: &GpuContext,
+    base_image: &DynamicImage,
+    request: RenderRequest,
+    caller_id: &str,
+) -> Result<DynamicImage, String> {
+    let start_time = Instant::now();
+    let (width, height) = base_image.dimensions();
+    let device = &context.device;
+    let queue = &context.queue;
+
+    let max_dim = context.limits.max_texture_dimension_2d;
+    if width > max_dim || height > max_dim {
+        log::warn!(
+            "Image dimensions ({}x{}) exceed GPU limits ({}). Bypassing GPU processing and returning unprocessed image to prevent a crash. Try upgrading your GPU :)",
+            width,
+            height,
+            max_dim
+        );
+        return Ok(base_image.clone());
+    }
+
+    let processor_width = (width + 255) & !255;
+    let processor_height = (height + 255) & !255;
+    let processor = GpuProcessor::new(context.clone(), processor_width, processor_height)?;
+
+    let img_rgba_f16 = to_rgba_f16(base_image);
+    let texture_size = wgpu::Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+    };
+    let texture = device.create_texture_with_data(
+        queue,
+        &wgpu::TextureDescriptor {
+            label: Some("Isolated Input Texture"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        },
+        TextureDataOrder::MipMajor,
+        bytemuck::cast_slice(&img_rgba_f16),
+    );
+    let texture_view = texture.create_view(&Default::default());
+
+    let (processed_pixels, out_w, out_h, _out_x, _out_y) =
+        processor.run(&texture_view, width, height, request, false, false)?;
+
+    let duration = start_time.elapsed();
+    let fps = 1.0 / duration.as_secs_f64();
+    log::info!(
+        "[{}] {}x{} processed (ROI: {}x{}) on isolated GPU in {:?} ({:.2} FPS)",
+        caller_id,
+        width,
+        height,
+        out_w,
+        out_h,
+        duration,
+        fps
+    );
+
+    let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(out_w, out_h, processed_pixels)
+        .ok_or("Failed to create image buffer from GPU data")?;
+    Ok(DynamicImage::ImageRgba8(img_buf))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn process_and_get_dynamic_image_with_analytics(
     context: &GpuContext,
