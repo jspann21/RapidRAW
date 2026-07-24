@@ -105,6 +105,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
 
     setEditor({ adjustments: INITIAL_ADJUSTMENTS });
     resetHistory(INITIAL_ADJUSTMENTS);
+    useEditorStore.getState().patchesSentToBackend.clear();
 
     isBackendReadyRef.current = true;
     setEditor((state) => {
@@ -124,11 +125,12 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       }
 
       const { selectedImage, isSliderDragging, resetHistory, setEditor } = useEditorStore.getState();
-      const { setLibrary } = useLibraryStore.getState();
+      const { setLibrary, multiSelectedPaths } = useLibraryStore.getState();
       const { setUI } = useUIStore.getState();
 
       if (selectedImage?.path === path) return;
 
+      useEditorStore.getState().patchesSentToBackend.clear();
       debouncedSave.flush();
       debouncedSetHistory.cancel();
 
@@ -152,7 +154,14 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       }
 
       selectedImagePathRef.current = path;
-      setLibrary({ multiSelectedPaths: [path], libraryActivePath: null, selectionAnchorPath: path });
+
+      const newMultiSelectedPaths = multiSelectedPaths.includes(path) ? multiSelectedPaths : [path];
+
+      setLibrary({
+        multiSelectedPaths: newMultiSelectedPaths,
+        libraryActivePath: null,
+        selectionAnchorPath: path,
+      });
 
       setEditor({
         showOriginal: false,
@@ -289,7 +298,8 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       preserveEditor = false,
     ) => {
       const { appSettings, handleSettingsChange } = useSettingsStore.getState();
-      const { setLibrary, sortCriteria, rootPaths, expandedFolders } = useLibraryStore.getState();
+      const { pinnedFolders } = appSettings || { pinnedFolders: [] };
+      const { setLibrary, sortCriteria } = useLibraryStore.getState();
       const { setUI } = useUIStore.getState();
       const { setProcess } = useProcessStore.getState();
       useGooglePhotosStore.getState().setGooglePhotos({ isAlbumView: false });
@@ -309,7 +319,8 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       }
 
       try {
-        let newExpandedFolders = new Set(expandedFolders);
+        const { rootPaths, expandedFolders: currentExpandedFolders } = useLibraryStore.getState();
+        let newExpandedFolders = new Set(currentExpandedFolders);
 
         if (isNewRoot && path) {
           newExpandedFolders = new Set([path]);
@@ -353,6 +364,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
           setEditor({ selectedImage: null, finalPreviewUrl: null, uncroppedAdjustedPreviewUrl: null, histogram: null });
           setEditor({ adjustments: INITIAL_ADJUSTMENTS });
           resetHistory(INITIAL_ADJUSTMENTS);
+          useEditorStore.getState().patchesSentToBackend.clear();
         }
 
         const command =
@@ -557,7 +569,8 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
             const newTree = await invoke(Invokes.GetFolderTree, {
               path: selectedPath,
               expandedFolders: [selectedPath],
-              showImageCounts: appSettings?.enableFolderImageCounts ?? false,
+              showImageCounts:
+                appSettings?.enableFolderImageCounts || appSettings?.folderTreeSort?.key === 'imageCount',
             });
             setLibrary({ folderTrees: [...folderTrees, newTree] });
           } catch (e) {
@@ -623,7 +636,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
           treesData = await invoke(Invokes.GetFolderTrees, {
             paths: rootFolders,
             expandedFolders: expandedArr,
-            showImageCounts: appSettings?.enableFolderImageCounts ?? false,
+            showImageCounts: appSettings?.enableFolderImageCounts || appSettings?.folderTreeSort?.key === 'imageCount',
           });
         }
         setLibrary({ folderTrees: treesData });

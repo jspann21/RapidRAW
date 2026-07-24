@@ -23,6 +23,7 @@ export function useImageProcessing(
 
   const selectedImage = useEditorStore((state) => state.selectedImage);
   const adjustments = useEditorStore((state) => state.adjustments);
+  const previewOverride = useEditorStore((state) => state.previewOverride);
   const isWaveformVisible = useEditorStore((state) => state.isWaveformVisible);
   const activeWaveformChannel = useEditorStore((state) => state.activeWaveformChannel);
   const displaySize = useEditorStore((state) => state.displaySize);
@@ -417,25 +418,24 @@ export function useImageProcessing(
     if (dragIdleTimer.current) clearTimeout(dragIdleTimer.current);
 
     const targetRes = calculateTargetRes();
+    const renderAdjustments = previewOverride ?? adjustments;
 
     if (isSliderDragging) {
       if (appSettings?.enableLivePreviews !== false) {
-        applyAdjustments(adjustments, true, targetRes);
+        applyAdjustments(renderAdjustments, true, targetRes);
       }
     } else {
       dragIdleTimer.current = setTimeout(() => {
         currentResRef.current = targetRes;
 
-        applyAdjustments(adjustments, false, targetRes);
+        applyAdjustments(renderAdjustments, false, targetRes);
+
+        if (previewOverride) return;
+
         debouncedSave(selectedImage.path, adjustments);
 
-        const { suppressNextMultiSelectionSync } = useEditorStore.getState();
-        const otherPaths = suppressNextMultiSelectionSync
-          ? []
-          : multiSelectedPaths.filter((p) => p !== selectedImage.path);
-        if (suppressNextMultiSelectionSync) {
-          setEditor({ suppressNextMultiSelectionSync: false });
-        } else if (otherPaths.length > 0) {
+        const otherPaths = multiSelectedPaths.filter((p) => p !== selectedImage.path);
+        if (appSettings?.copyPasteSettings?.autoSync && otherPaths.length > 0) {
           const prev = prevAdjustmentsRef.current;
           if (prev && prev.path === selectedImage.path) {
             const delta: Partial<Adjustments> = {};
@@ -465,12 +465,14 @@ export function useImageProcessing(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     adjustments,
+    previewOverride,
     selectedImage?.path,
     selectedImage?.isReady,
     isSliderDragging,
     multiSelectedPaths,
     appSettings?.enableLivePreviews,
     appSettings?.copyPasteSettings?.includedAdjustments,
+    appSettings?.copyPasteSettings?.autoSync,
     isWaveformVisible,
   ]);
 

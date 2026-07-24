@@ -43,6 +43,7 @@
         "shadows": "シャドウ"
       },
       "hue": "色相",
+      "localHue": "ローカル色相",
       "luminance": "輝度",
       "mixerColors": {
         "aquas": "アクア",
@@ -65,13 +66,13 @@
       "whiteBalance": "ホワイトバランス"
     },
     "curves": {
+      "channelTitle": "{{channel}} チャンネル",
       "channels": {
         "blue": "ブルー",
         "green": "グリーン",
         "luma": "ルミナンス",
         "red": "レッド"
       },
-      "channelTitle": "{{channel}} チャンネル",
       "copyParametric": "{{channel}} パラメトリックカーブをコピー",
       "copyPoint": "{{channel}} ポイントカーブをコピー",
       "curveDataUnavailable": "カーブデータがありません。",
@@ -351,7 +352,9 @@
       "dropzoneText": "ここにドロップして新しい編集を作成",
       "editSettingsTitle": "編集設定",
       "editsTitle": "編集一覧",
+      "generativeEditTitle": "生成編集",
       "inpaintingTitle": "インペインティング",
+      "manualCleanupTitle": "手動クリーンアップ",
       "noImageSelected": "画像が選択されていません。",
       "params": {
         "feather": "ぼかし",
@@ -361,6 +364,10 @@
         "aiEdit": "AI編集 {{count}}",
         "aiEdit_one": "AI編集 {{count}}",
         "aiEdit_other": "AI編集 {{count}}",
+        "clone": "クローン {{count}}",
+        "clone_other": "クローン {{count}}",
+        "heal": "修復 {{count}}",
+        "heal_other": "修復 {{count}}",
         "invertedName": "{{name}} 反転",
         "quickErase": "クイック消去 {{count}}",
         "quickErase_one": "クイック消去 {{count}}",
@@ -497,6 +504,11 @@
         "transform": "遠近歪みとあおり補正"
       }
     },
+    "externalEdit": {
+      "done": "完了",
+      "exporting": "書き出し中…",
+      "savesTo": "外部編集 — 保存先"
+    },
     "masks": {
       "actions": {
         "addNewComponent": "新しいコンポーネントを追加",
@@ -579,6 +591,7 @@
       "tooltips": {
         "addToCurrent": "{{name}}を現在のマスクに追加、または新規作成 (右クリック)",
         "createNew": "新規の {{name}} マスクを作成",
+        "selectNewSourcePoint": "{{modifier}} + クリックで新しいソースポイントを選択",
         "showMore": "他のマスクタイプを表示"
       }
     },
@@ -625,8 +638,8 @@
       "organization": {
         "addTagPlaceholder": "タグを追加...",
         "colorLabel": "カラーラベル",
-        "none": "なし",
         "noTags": "タグなし",
+        "none": "なし",
         "rating": "評価",
         "ratingLabels": "評価とラベル",
         "tags": "タグ",
@@ -635,6 +648,7 @@
       "title": "メタデータ"
     },
     "presets": {
+      "amount": "適用量",
       "dialog": {
         "allPresetFiles": "すべてのプリセットファイル",
         "exportAllTitle": "すべてのプリセットを書き出し",
@@ -768,17 +782,18 @@
       "estimatedSize": "推定ファイルサイズ: ~{{size}}",
       "estimatedTotalSize": "推定合計サイズ: ~{{size}}",
       "estimatingSize": "サイズを推定中...",
-      "exporting": "書き出し中…",
-      "exportingProgress": "書き出し中… ({{current}}/{{total}})",
       "exportMultiple": "{{count}} 件の {{label}} を書き出し",
       "exportMultiple_one": "{{count}} 件 of {{label}} を書き出し",
       "exportMultiple_other": "{{count}} 件の {{label}} を書き出し",
       "exportSingle": "{{label}} を書き出し",
+      "exporting": "書き出し中…",
+      "exportingProgress": "書き出し中… ({{current}}/{{total}})",
       "failed": "書き出しに失敗しました",
       "noImageSelected": "書き出す画像が選択されていません。",
       "noImagesSelected": "画像が選択されていません。",
       "success": "書き出しが成功しました！"
     },
+    "title": "エクスポート",
     "watermark": {
       "addWatermark": "ウォーターマークを追加",
       "anchors": {
@@ -816,6 +831,31 @@
       "sortMethods": {
         "name": "名前 (A-Z)"
       }
+    },
+    "culling": {
+      "addTagPlaceholder": "タグを追加...",
+      "altCullingPreviewHighRes": "高解像度選別プレビュー",
+      "altThumbnailLoading": "サムネイル読み込み中",
+      "aperture": "絞り",
+      "cameraSettings": "カメラ設定",
+      "clickThumbnailsHint": "右サイドバーのサムネイルをクリックして比較ビューに追加します。",
+      "colorLabel": "カラーラベル",
+      "dimensions": "寸法",
+      "editImage": "画像を編集",
+      "focalLength": "焦点距離",
+      "iso": "ISO",
+      "metadata": "メタデータ",
+      "noMetadataAvailable": "メタデータがありません",
+      "noTagsAdded": "タグが追加されていません",
+      "none": "なし",
+      "rateAndLabel": "評価とラベル",
+      "rating": "評価",
+      "selectImagesToCompare": "比較する画像を選択",
+      "shutterSpeed": "シャッタースピード",
+      "syncZoomAndPan": "ズームとパンを同期",
+      "tags": "タグ",
+      "toggleFit": "1:1 / 全体表示の切り替え",
+      "vc": "VC"
     },
     "filters": {
       "edited": {
@@ -856,10 +896,17 @@
         "folders": "フォルダ",
         "pinned": "ピン留め"
       },
+      "sort": {
+        "created": "作成日",
+        "imageCount": "画像数",
+        "modified": "更新日",
+        "name": "アルファベット順"
+      },
       "tooltips": {
         "clearSearch": "検索をクリア",
         "collapse": "折りたたむ",
-        "expand": "展開"
+        "expand": "展開",
+        "sortFolders": "フォルダーを並べ替え"
       }
     },
     "grid": {
@@ -915,6 +962,7 @@
       "progress": "インポート中... ({{current}}/{{total}})"
     },
     "items": {
+      "cloudPlaceholder": "iCloudに保存されています — 未ダウンロード",
       "collapseFolder": "フォルダを折りたたむ",
       "currentFolder": "現在のフォルダ",
       "expandFolder": "フォルダを展開",
@@ -989,10 +1037,12 @@
     "types": {
       "all": "画像全体",
       "brush": "ブラシ",
+      "clone": "クローン",
       "color": "カラー",
       "depth": "奥行き",
       "flow": "流量",
       "foreground": "手前",
+      "heal": "修復",
       "linear": "線形",
       "luminance": "ルミナンス",
       "others": "その他",
@@ -1049,6 +1099,9 @@
       "confirm": "確認"
     },
     "copyPaste": {
+      "autoSyncDesc": "選択したすべての画像に調整を自動的に適用します。",
+      "autoSyncLabel": "自動同期を有効にする",
+      "autoSyncTitle": "調整の自動同期",
       "cancel": "キャンセル",
       "descMerge": "コピーした設定を追加し、その他の設定はそのまま残します。",
       "descReplace": "選択したすべての設定を上書きし、残りの設定をデフォルトにリセットします。",
@@ -1063,6 +1116,7 @@
         "exposureToneMapper": "露光量とトーンマッパー",
         "grain": "粒子",
         "halationGlow": "ハレーションとグロー",
+        "hueShift": "グローバル色相シフト",
         "lensCorrection": "レンズ補正",
         "lut": "LUT",
         "masks": "マスク",
@@ -1102,9 +1156,9 @@
       "applyButton_one": "1 枚の画像に適用",
       "applyButton_other": "{{count}} 枚の画像に適用",
       "bestImage": "ベスト画像",
-      "blurryImagesTab": "ぼやけた画像",
       "blurThreshold": "ブレのしきい値",
       "blurThresholdDesc": "この値以下のシャープネススコアを持つ画像にフラグを立てます。高いほど厳密になります。",
+      "blurryImagesTab": "ぼやけた画像",
       "cancel": "キャンセル",
       "close": "閉じる",
       "cullingFailed": "選別失敗",
@@ -1427,7 +1481,9 @@
         "copy_files": "選択したファイルをコピー",
         "cycle_zoom": "ズームの切り替え (全体表示、2倍拡大、100%)",
         "delete_selected": "選択したファイルを削除",
+        "focus_search": "検索フィールドにフォーカス",
         "open_image": "選択した画像を開く",
+        "open_settings": "設定を開く",
         "paste_adjustments": "コピーした補正設定を貼り付け",
         "paste_files": "現在のフォルダにファイルを貼り付け",
         "preview_next": "次の画像",
@@ -1624,8 +1680,8 @@
     "tagging": {
       "addCustomPlaceholder": "カスタムAIタグを入力（カンマ区切り）...",
       "addCustomTooltip": "AIタグを追加",
-      "addShortcutsPlaceholder": "ショートカットを入力（カンマ区切り）...",
       "addShortcutTooltip": "ショートカットを追加",
+      "addShortcutsPlaceholder": "ショートカットを入力（カンマ区切り）...",
       "aiTagging": "AIタグ付け",
       "aiTaggingDesc": "AI（CLIP）モデルを使用した自動画像タグ付けを有効にします。追加のモデルがダウンロードされ、フォルダ閲覧時のパフォーマンスに影響します。タグはフォルダ内検索に使用されます。",
       "amount": "適用度",
@@ -1687,6 +1743,7 @@
         "expandFilmstrip": "フィルムストリップを展開",
         "export": "書き出し",
         "pasteSettings": "補正設定を貼り付け",
+        "quickFilter": "クイックフィルター",
         "rateStars_one": "星1に評価",
         "rateStars_other": "星 {{count}} に評価",
         "resetZoom": "ズームをウィンドウサイズに合わせる",
@@ -1731,9 +1788,13 @@
     },
     "lut": {
       "clearLut": "LUTをクリア",
+      "empty": "LUTはまだありません — インポートしてください",
       "filterLabel": "LUTファイル",
+      "import": "プロファイルをインポート",
+      "importFailed": "LUTのインポートに失敗しました",
       "intensity": "適用度",
       "label": "LUT",
+      "removeLut": "LUTを削除",
       "select": "選択",
       "selectLutFile": "LUTファイルを選択",
       "unsupportedFormat": "未対応のファイル形式が検出されました: .{{ext}}"

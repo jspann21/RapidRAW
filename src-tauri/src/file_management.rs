@@ -11,7 +11,6 @@ use std::sync::atomic::Ordering;
 use std::thread;
 
 use anyhow::Result;
-use base64::{Engine as _, engine::general_purpose};
 use chrono::{DateTime, Utc};
 use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Luma};
@@ -19,11 +18,13 @@ use rayon::prelude::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sysinfo::Disks;
 use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::AppState;
+use crate::PendingMetadata;
 #[cfg(target_os = "android")]
 use crate::android_integration::*;
 use crate::app_settings::*;
@@ -77,6 +78,115 @@ fn compute_thumbnail_cache_hash(path_str: &str, adjustments_bytes: &[u8]) -> Opt
     hasher.update(&img_mod_time.to_le_bytes());
     hasher.update(adjustments_bytes);
     Some(hasher.finalize().to_hex().to_string())
+}
+
+fn resolve_image_metadata(
+    image_path: &Path,
+    sidecar_path: &Path,
+    enable_xmp_sync: bool,
+    settings: &AppSettings,
+) -> (bool, Option<Vec<String>>, u8) {
+    let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+
+    if enable_xmp_sync
+        && sync_metadata_from_xmp(image_path, &mut metadata)
+        && let Ok(json) = serde_json::to_string_pretty(&metadata)
+    {
+        let _ = fs::write(sidecar_path, json);
+    }
+
+    let is_raw = crate::formats::is_raw_file(image_path);
+    let tm_override = crate::image_processing::resolve_tonemapper_override(settings, is_raw);
+    let edited =
+        crate::image_processing::is_image_edited(&metadata.adjustments, is_raw, tm_override);
+    (edited, metadata.tags, metadata.rating)
+}
+
+fn emit_image_metadata_loaded(
+    app_handle: &AppHandle,
+    path: &str,
+    rating: u8,
+    is_edited: bool,
+    tags: &Option<Vec<String>>,
+) {
+    let _ = app_handle.emit(
+        "image-metadata-loaded",
+        serde_json::json!({ "path": path, "rating": rating, "is_edited": is_edited, "tags": tags }),
+    );
+}
+
+fn enqueue_metadata(
+    app_handle: &AppHandle,
+    virtual_path: String,
+    image_path: PathBuf,
+    sidecar_path: PathBuf,
+) {
+    let state = app_handle.state::<crate::AppState>();
+    let manager = &state.metadata_manager;
+
+    let mut pending = manager.pending.lock().unwrap();
+    if !pending.insert(sidecar_path.clone()) {
+        return;
+    }
+    drop(pending);
+
+    manager.queue.lock().unwrap().push_back(PendingMetadata {
+        virtual_path,
+        image_path,
+        sidecar_path,
+    });
+    manager.cvar.notify_one();
+}
+
+// Not compute-heavy — these threads mostly block waiting on iCloud to
+// materialize a file, not burning CPU — so a small fixed pool is enough and
+// doesn't need a user-facing setting the way thumbnail_worker_threads does.
+const METADATA_WORKER_THREADS: usize = 4;
+
+pub fn start_metadata_workers(app_handle: tauri::AppHandle) {
+    let state = app_handle.state::<crate::AppState>();
+    let manager = state.metadata_manager.clone();
+
+    for _ in 0..METADATA_WORKER_THREADS {
+        let app_clone = app_handle.clone();
+        let manager_clone = manager.clone();
+
+        std::thread::spawn(move || {
+            loop {
+                let item = {
+                    let mut queue = manager_clone.queue.lock().unwrap();
+                    while queue.is_empty() {
+                        queue = manager_clone.cvar.wait(queue).unwrap();
+                    }
+                    queue.pop_front().unwrap()
+                };
+
+                let settings = load_settings(app_clone.clone()).unwrap_or_default();
+                let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
+
+                let (is_edited, tags, rating) = resolve_image_metadata(
+                    &item.image_path,
+                    &item.sidecar_path,
+                    enable_xmp_sync,
+                    &settings,
+                );
+
+                emit_image_metadata_loaded(
+                    &app_clone,
+                    &item.virtual_path,
+                    rating,
+                    is_edited,
+                    &tags,
+                );
+
+                manager_clone
+                    .pending
+                    .lock()
+                    .unwrap()
+                    .remove(&item.sidecar_path);
+            }
+        });
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -295,6 +405,7 @@ pub struct ImageFile {
     tags: Option<Vec<String>>,
     exif: Option<HashMap<String, String>>,
     is_virtual_copy: bool,
+    is_cloud_placeholder: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -435,6 +546,8 @@ pub async fn read_exif_for_paths(
                     crate::exif_processing::read_rrexif_sidecar(&source_path)
                 {
                     sidecar_exif
+                } else if is_cloud_placeholder(&source_path) {
+                    HashMap::new()
                 } else if let Ok(mmap) = read_file_mapped(&source_path) {
                     crate::exif_processing::read_exif_data(&source_path_str, &mmap)
                 } else if let Ok(bytes) = fs::read(&source_path) {
@@ -502,10 +615,64 @@ pub async fn update_exif_fields(
     .map_err(|e| format!("Task failed: {}", e))?
 }
 
+fn match_disk_kind(disks: &Disks, canonical: &Path) -> Option<bool> {
+    let mut best_match: Option<(&Path, bool)> = None;
+
+    for disk in disks.list() {
+        let mount_point = disk.mount_point();
+        if canonical.starts_with(mount_point) {
+            let is_longer_match = best_match
+                .map(|(current, _)| mount_point.as_os_str().len() > current.as_os_str().len())
+                .unwrap_or(true);
+            if is_longer_match {
+                best_match = Some((mount_point, disk.kind() == sysinfo::DiskKind::HDD));
+            }
+        }
+    }
+
+    best_match.map(|(_, is_hdd)| is_hdd)
+}
+
+fn update_rotational_disk_flag(path: &str, app_handle: &AppHandle) {
+    let state = app_handle.state::<crate::AppState>();
+    let Ok(canonical) = Path::new(path).canonicalize() else {
+        return;
+    };
+
+    let cached_match = {
+        let cache = state.disks_cache.lock().unwrap();
+        cache
+            .as_ref()
+            .and_then(|disks| match_disk_kind(disks, &canonical))
+    };
+
+    match cached_match {
+        Some(is_hdd) => {
+            state
+                .thumbnail_manager
+                .rotational_disk
+                .store(is_hdd, Ordering::Relaxed);
+        }
+        None => {
+            if !state.disks_cache_refreshing.swap(true, Ordering::Relaxed) {
+                let refresh_app_handle = app_handle.clone();
+                thread::spawn(move || {
+                    let disks = Disks::new_with_refreshed_list();
+                    let state = refresh_app_handle.state::<crate::AppState>();
+                    *state.disks_cache.lock().unwrap() = Some(disks);
+                    state.disks_cache_refreshing.store(false, Ordering::Relaxed);
+                });
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub fn list_images_in_dir(path: String, app_handle: AppHandle) -> Result<Vec<ImageFile>, String> {
-    let settings = load_settings(app_handle).unwrap_or_default();
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
+
+    update_rotational_disk_flag(&path, &app_handle);
 
     let entries = fs::read_dir(&path).map_err(|e| e.to_string())?;
     let mut images = Vec::new();
@@ -563,6 +730,8 @@ pub fn list_images_in_dir(path: String, app_handle: AppHandle) -> Result<Vec<Ima
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
 
+            let is_cloud_placeholder = is_cloud_placeholder(&path_buf);
+
             let mut file_results = Vec::with_capacity(sidecars.len());
 
             for copy_id_opt in sidecars {
@@ -577,26 +746,24 @@ pub fn list_images_in_dir(path: String, app_handle: AppHandle) -> Result<Vec<Ima
 
                 let sidecar_path = path_buf.with_file_name(sidecar_filename);
 
-                let (is_edited, tags, rating) = {
-                    let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+                let xmp_is_placeholder = enable_xmp_sync
+                    && resolve_xmp_path(&path_buf)
+                        .is_some_and(|p| crate::file_management::is_cloud_placeholder(&p));
 
-                    if enable_xmp_sync
-                        && sync_metadata_from_xmp(&path_buf, &mut metadata)
-                        && let Ok(json) = serde_json::to_string_pretty(&metadata)
+                let (is_edited, tags, rating) =
+                    if crate::file_management::is_cloud_placeholder(&sidecar_path)
+                        || xmp_is_placeholder
                     {
-                        let _ = fs::write(&sidecar_path, json);
-                    }
-
-                    let is_raw = crate::formats::is_raw_file(&path_str);
-                    let tm_override =
-                        crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
-                    let edited = crate::image_processing::is_image_edited(
-                        &metadata.adjustments,
-                        is_raw,
-                        tm_override,
-                    );
-                    (edited, metadata.tags, metadata.rating)
-                };
+                        enqueue_metadata(
+                            &app_handle,
+                            virtual_path.clone(),
+                            path_buf.clone(),
+                            sidecar_path.clone(),
+                        );
+                        (false, None, 0)
+                    } else {
+                        resolve_image_metadata(&path_buf, &sidecar_path, enable_xmp_sync, &settings)
+                    };
 
                 file_results.push(ImageFile {
                     path: virtual_path,
@@ -606,6 +773,7 @@ pub fn list_images_in_dir(path: String, app_handle: AppHandle) -> Result<Vec<Ima
                     exif: None,
                     is_virtual_copy,
                     rating,
+                    is_cloud_placeholder,
                 });
             }
 
@@ -621,8 +789,10 @@ pub fn list_images_recursive(
     path: String,
     app_handle: AppHandle,
 ) -> Result<Vec<ImageFile>, String> {
-    let settings = load_settings(app_handle).unwrap_or_default();
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
+
+    update_rotational_disk_flag(&path, &app_handle);
 
     let root_path = Path::new(&path);
     let mut images = Vec::new();
@@ -686,6 +856,8 @@ pub fn list_images_recursive(
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
 
+            let is_cloud_placeholder = is_cloud_placeholder(&path_buf);
+
             let mut file_results = Vec::with_capacity(sidecars.len());
 
             for copy_id_opt in sidecars {
@@ -700,26 +872,24 @@ pub fn list_images_recursive(
 
                 let sidecar_path = path_buf.with_file_name(sidecar_filename);
 
-                let (is_edited, tags, rating) = {
-                    let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+                let xmp_is_placeholder = enable_xmp_sync
+                    && resolve_xmp_path(&path_buf)
+                        .is_some_and(|p| crate::file_management::is_cloud_placeholder(&p));
 
-                    if enable_xmp_sync
-                        && sync_metadata_from_xmp(&path_buf, &mut metadata)
-                        && let Ok(json) = serde_json::to_string_pretty(&metadata)
+                let (is_edited, tags, rating) =
+                    if crate::file_management::is_cloud_placeholder(&sidecar_path)
+                        || xmp_is_placeholder
                     {
-                        let _ = fs::write(&sidecar_path, json);
-                    }
-
-                    let is_raw = crate::formats::is_raw_file(&path_str);
-                    let tm_override =
-                        crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
-                    let edited = crate::image_processing::is_image_edited(
-                        &metadata.adjustments,
-                        is_raw,
-                        tm_override,
-                    );
-                    (edited, metadata.tags, metadata.rating)
-                };
+                        enqueue_metadata(
+                            &app_handle,
+                            virtual_path.clone(),
+                            path_buf.clone(),
+                            sidecar_path.clone(),
+                        );
+                        (false, None, 0)
+                    } else {
+                        resolve_image_metadata(&path_buf, &sidecar_path, enable_xmp_sync, &settings)
+                    };
 
                 file_results.push(ImageFile {
                     path: virtual_path,
@@ -729,6 +899,7 @@ pub fn list_images_recursive(
                     exif: None,
                     is_virtual_copy,
                     rating,
+                    is_cloud_placeholder,
                 });
             }
 
@@ -963,26 +1134,25 @@ pub fn get_album_images(
                 .unwrap_or(0);
 
             let is_virtual_copy = virtual_path.contains("?vc=");
+            let is_cloud_placeholder = is_cloud_placeholder(&source_path);
 
-            let (is_edited, tags, rating) = {
-                let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+            let xmp_is_placeholder = enable_xmp_sync
+                && resolve_xmp_path(&source_path)
+                    .is_some_and(|p| crate::file_management::is_cloud_placeholder(&p));
 
-                if enable_xmp_sync
-                    && sync_metadata_from_xmp(&source_path, &mut metadata)
-                    && let Ok(json) = serde_json::to_string_pretty(&metadata)
-                {
-                    let _ = fs::write(&sidecar_path, json);
-                }
-
-                let is_raw = crate::formats::is_raw_file(&source_path);
-                let tm_override =
-                    crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
-                let edited = crate::image_processing::is_image_edited(
-                    &metadata.adjustments,
-                    is_raw,
-                    tm_override,
+            let (is_edited, tags, rating) = if crate::file_management::is_cloud_placeholder(
+                &sidecar_path,
+            ) || xmp_is_placeholder
+            {
+                enqueue_metadata(
+                    &app_handle,
+                    virtual_path.clone(),
+                    source_path.clone(),
+                    sidecar_path.clone(),
                 );
-                (edited, metadata.tags, metadata.rating)
+                (false, None, 0)
+            } else {
+                resolve_image_metadata(&source_path, &sidecar_path, enable_xmp_sync, &settings)
             };
 
             Some(ImageFile {
@@ -993,6 +1163,7 @@ pub fn get_album_images(
                 exif: None,
                 is_virtual_copy,
                 rating,
+                is_cloud_placeholder,
             })
         })
         .collect();
@@ -1009,6 +1180,8 @@ pub struct FolderNode {
     pub is_dir: bool,
     pub image_count: usize,
     pub has_subdirs: bool,
+    pub modified: u64,
+    pub created: u64,
 }
 
 fn has_subdirs(path: &Path) -> bool {
@@ -1046,8 +1219,24 @@ fn scan_dir_lazy(
 
     for entry in entries.filter_map(Result::ok) {
         let current_path = entry.path();
-        let file_type = match entry.file_type() {
-            Ok(ft) => ft,
+        let (file_type, modified, created) = match entry.metadata() {
+            Ok(meta) => {
+                let ft = meta.file_type();
+                let mod_time = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                let cre_time = meta.created().unwrap_or(mod_time);
+
+                (
+                    ft,
+                    mod_time
+                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                    cre_time
+                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                )
+            }
             Err(_) => continue,
         };
 
@@ -1104,6 +1293,8 @@ fn scan_dir_lazy(
                 is_dir: true,
                 image_count: total_child_count,
                 has_subdirs: has_any_subdirs,
+                modified,
+                created,
             });
         } else if show_image_counts
             && file_type.is_file()
@@ -1127,6 +1318,24 @@ fn get_folder_tree_sync(
     if !root_path.is_dir() {
         return Err(format!("Directory does not exist: {}", path));
     }
+
+    let (modified, created) = root_path
+        .metadata()
+        .map(|m| {
+            let mod_time = m.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            let cre_time = m.created().unwrap_or(mod_time);
+            (
+                mod_time
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+                cre_time
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+            )
+        })
+        .unwrap_or((0, 0));
 
     let expanded_set: HashSet<&str> = expanded_folders.iter().map(|s| s.as_str()).collect();
 
@@ -1155,6 +1364,8 @@ fn get_folder_tree_sync(
         is_dir: true,
         image_count: own_count + children_sum,
         has_subdirs,
+        modified,
+        created,
     })
 }
 
@@ -1230,6 +1441,26 @@ pub async fn get_folder_trees(
     }
 }
 
+/// Checks if the given path exists and is an iCloud placeholder file on macOS.
+#[cfg(target_os = "macos")]
+pub fn is_cloud_placeholder(path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    const SF_DATALESS: u32 = 0x4000_0000;
+
+    let c_path = match std::ffi::CString::new(path.as_os_str().as_bytes()) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    let mut stat_buf: libc::stat = unsafe { std::mem::zeroed() };
+    let ret = unsafe { libc::lstat(c_path.as_ptr(), &mut stat_buf) };
+    ret == 0 && (stat_buf.st_flags & SF_DATALESS) != 0
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn is_cloud_placeholder(_path: &Path) -> bool {
+    false
+}
+
 pub fn read_file_mapped(path: &Path) -> Result<Mmap, ReadFileError> {
     if !path.is_file() {
         return Err(ReadFileError::Invalid);
@@ -1253,6 +1484,55 @@ pub fn read_file_mapped(path: &Path) -> Result<Mmap, ReadFileError> {
     Ok(mmap)
 }
 
+fn find_embedded_jpeg(exif: &exif::Exif, ifd: exif::In) -> Option<&[u8]> {
+    let offset = exif
+        .get_field(exif::Tag::JPEGInterchangeFormat, ifd)?
+        .value
+        .get_uint(0)? as usize;
+    let len = exif
+        .get_field(exif::Tag::JPEGInterchangeFormatLength, ifd)?
+        .value
+        .get_uint(0)? as usize;
+    exif.buf().get(offset..offset + len)
+}
+
+fn apply_exif_orientation(img: DynamicImage, orientation: u32) -> DynamicImage {
+    match orientation {
+        2 => img.fliph(),
+        3 => img.rotate180(),
+        4 => img.flipv(),
+        5 => img.rotate90().fliph(),
+        6 => img.rotate90(),
+        7 => img.rotate270().fliph(),
+        8 => img.rotate270(),
+        _ => img,
+    }
+}
+
+fn try_load_embedded_raw_preview(source_path: &Path, target_res: u32) -> Option<DynamicImage> {
+    let mmap = read_file_mapped(source_path).ok()?;
+    let exif = exif_processing::read_exif(&mmap)?;
+
+    let (jpeg_bytes, ifd) = find_embedded_jpeg(&exif, exif::In::PRIMARY)
+        .map(|b| (b, exif::In::PRIMARY))
+        .or_else(|| {
+            find_embedded_jpeg(&exif, exif::In::THUMBNAIL).map(|b| (b, exif::In::THUMBNAIL))
+        })?;
+
+    let img = image::load_from_memory_with_format(jpeg_bytes, image::ImageFormat::Jpeg).ok()?;
+
+    if img.width().max(img.height()) < (target_res as f32 * 0.95) as u32 {
+        return None;
+    }
+
+    let orientation = exif
+        .get_field(exif::Tag::Orientation, ifd)
+        .and_then(|f| f.value.get_uint(0))
+        .unwrap_or(1);
+
+    Some(apply_exif_orientation(img, orientation))
+}
+
 pub fn generate_thumbnail_data(
     path_str: &str,
     gpu_context: Option<&GpuContext>,
@@ -1263,13 +1543,31 @@ pub fn generate_thumbnail_data(
     let source_path_str = source_path.to_string_lossy().to_string();
     let is_raw = is_raw_file(&source_path_str);
 
-    let metadata: Option<ImageMetadata> = fs::read_to_string(sidecar_path)
-        .ok()
-        .and_then(|content| serde_json::from_str(&content).ok());
+    let metadata: Option<ImageMetadata> = if is_cloud_placeholder(&sidecar_path) {
+        enqueue_metadata(
+            app_handle,
+            path_str.to_string(),
+            source_path.clone(),
+            sidecar_path.clone(),
+        );
+        None
+    } else {
+        fs::read_to_string(&sidecar_path)
+            .ok()
+            .and_then(|content| serde_json::from_str(&content).ok())
+    };
 
     let adjustments = metadata
         .as_ref()
         .map_or(serde_json::Value::Null, |m| m.adjustments.clone());
+
+    if is_raw && adjustments.is_null() && preloaded_image.is_none() {
+        let settings = load_settings(app_handle.clone()).unwrap_or_default();
+        let target_res = settings.thumbnail_resolution.unwrap_or(720);
+        if let Some(preview) = try_load_embedded_raw_preview(&source_path, target_res) {
+            return Ok(preview);
+        }
+    }
 
     if let (Some(context), Some(meta)) = (gpu_context, metadata)
         && !meta.adjustments.is_null()
@@ -1572,19 +1870,20 @@ fn generate_single_thumbnail_and_cache(
     force_regenerate: bool,
     context: &ThumbnailGenerationContext<'_>,
 ) -> Option<(String, u8, bool)> {
-    let state = context.app_handle.state::<AppState>();
-    if thumbnail_generation_cancelled(&state, context.thumbnail_generation) {
-        return None;
-    }
+    let (source_path, sidecar_path) = parse_virtual_path(path_str);
 
-    let (_, sidecar_path) = parse_virtual_path(path_str);
-
-    let (rating, is_edited, adjustments_bytes) = if let Ok(content) =
-        fs::read_to_string(&sidecar_path)
-    {
+    let (rating, is_edited, adjustments_bytes) = if is_cloud_placeholder(&sidecar_path) {
+        enqueue_metadata(
+            app_handle,
+            path_str.to_string(),
+            source_path.clone(),
+            sidecar_path.clone(),
+        );
+        (0, false, Vec::new())
+    } else if let Ok(content) = fs::read_to_string(&sidecar_path) {
         if let Ok(meta) = serde_json::from_str::<ImageMetadata>(&content) {
             let is_raw = crate::formats::is_raw_file(path_str);
-            let tm = crate::image_processing::resolve_tonemapper_override(context.settings, is_raw);
+            let tm = crate::image_processing::resolve_tonemapper_override(settings, is_raw);
 
             (
                 meta.rating,
@@ -1603,19 +1902,12 @@ fn generate_single_thumbnail_and_cache(
     let cache_filename = format!("{}.jpg", cache_hash);
     let cache_path = context.thumb_cache_dir.join(cache_filename);
 
-    if !force_regenerate
-        && cache_path.exists()
-        && let Ok(data) = fs::read(&cache_path)
-    {
-        if thumbnail_generation_cancelled(&state, context.thumbnail_generation) {
-            return None;
-        }
-        let base64_str = general_purpose::STANDARD.encode(&data);
-        return Some((
-            format!("data:image/jpeg;base64,{}", base64_str),
-            rating,
-            is_edited,
-        ));
+    if !force_regenerate && cache_path.exists() {
+        return Some((cache_path.to_string_lossy().into_owned(), rating, is_edited));
+    }
+
+    if is_cloud_placeholder(&source_path) {
+        return None;
     }
 
     let target_width = context.settings.thumbnail_resolution.unwrap_or(720);
@@ -1631,14 +1923,14 @@ fn generate_single_thumbnail_and_cache(
             return None;
         }
         let _ = fs::write(&cache_path, &thumb_data);
-        let base64_str = general_purpose::STANDARD.encode(&thumb_data);
-        return Some((
-            format!("data:image/jpeg;base64,{}", base64_str),
-            rating,
-            is_edited,
-        ));
+        return Some((cache_path.to_string_lossy().into_owned(), rating, is_edited));
     }
     None
+}
+
+fn prefetch_source_file(path_str: &str) {
+    let (source_path, _) = parse_virtual_path(path_str);
+    let _ = fs::read(&source_path);
 }
 
 pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
@@ -1686,13 +1978,11 @@ pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
                     crate::gpu_processing::get_or_init_gpu_context(&state, &app_clone).ok();
 
                 if let Ok(cache_dir) = get_thumb_cache_dir(&app_clone) {
-                    let thumbnail_context = ThumbnailGenerationContext {
-                        thumb_cache_dir: &cache_dir,
-                        gpu_context: gpu_context.as_ref(),
-                        thumbnail_generation,
-                        app_handle: &app_clone,
-                        settings: &worker_settings,
-                    };
+                    if manager_clone.rotational_disk.load(Ordering::Relaxed) {
+                        let _io_permit = manager_clone.io_gate.lock().unwrap();
+                        prefetch_source_file(&path_to_process);
+                    }
+
                     let result = generate_single_thumbnail_and_cache(
                         &path_to_process,
                         None,
@@ -1700,17 +1990,13 @@ pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
                         &thumbnail_context,
                     );
 
-                    if !thumbnail_generation_cancelled(&state, thumbnail_generation)
-                        && let Some((thumbnail_data, rating, is_edited)) = result
-                    {
-                        let _ = app_clone.emit(
-                            "thumbnail-generated",
-                            serde_json::json!({
-                                "path": path_to_process,
-                                "data": thumbnail_data,
-                                "rating": rating,
-                                "is_edited": is_edited
-                            }),
+                    if let Some((thumbnail_path, rating, is_edited)) = result {
+                        emit_thumbnail_generated(
+                            &app_clone,
+                            &path_to_process,
+                            &thumbnail_path,
+                            rating,
+                            is_edited,
                         );
                     }
                     if !thumbnail_generation_cancelled(&state, thumbnail_generation) {
@@ -1773,8 +2059,19 @@ pub fn update_thumbnail_queue(
         queue.pop_front();
     }
 
-    for path in unique_paths {
-        queue.push_back(path);
+    if state
+        .thumbnail_manager
+        .rotational_disk
+        .load(Ordering::Relaxed)
+    {
+        unique_paths.sort();
+        for path in unique_paths.into_iter().rev() {
+            queue.push_back(path);
+        }
+    } else {
+        for path in unique_paths {
+            queue.push_back(path);
+        }
     }
 
     let queue_len = queue.len();
@@ -1836,6 +2133,19 @@ pub fn increment_thumbnail_progress(state: &AppState, app_handle: &AppHandle) {
             serde_json::json!({ "current": current, "total": total }),
         );
     }
+}
+
+fn emit_thumbnail_generated(
+    app_handle: &AppHandle,
+    path: &str,
+    thumbnail_path: &str,
+    rating: u8,
+    is_edited: bool,
+) {
+    let _ = app_handle.emit(
+        "thumbnail-generated",
+        serde_json::json!({ "path": path, "thumbnailPath": thumbnail_path, "rating": rating, "is_edited": is_edited }),
+    );
 }
 
 pub fn resolve_lens_params_in_adjustments(
@@ -2389,12 +2699,13 @@ pub fn save_metadata_and_update_thumbnail(
             },
         );
 
-        if !thumbnail_generation_cancelled(&state, thumbnail_generation)
-            && let Some((thumbnail_data, rating, is_edited)) = result
-        {
-            let _ = app_handle_clone.emit(
-                "thumbnail-generated",
-                serde_json::json!({ "path": path_clone, "data": thumbnail_data, "rating": rating, "is_edited": is_edited }),
+        if let Some((thumbnail_path, rating, is_edited)) = result {
+            emit_thumbnail_generated(
+                &app_handle_clone,
+                &path_clone,
+                &thumbnail_path,
+                rating,
+                is_edited,
             );
         }
 
@@ -2497,13 +2808,8 @@ pub async fn apply_adjustments_to_paths(
                 &thumbnail_context,
             );
 
-            if !thumbnail_generation_cancelled(&state, thumbnail_generation)
-                && let Some((thumbnail_data, rating, is_edited)) = result
-            {
-                let _ = app_handle.emit(
-                    "thumbnail-generated",
-                    serde_json::json!({ "path": path_str, "data": thumbnail_data, "rating": rating, "is_edited": is_edited  }),
-                );
+            if let Some((thumbnail_path, rating, is_edited)) = result {
+                emit_thumbnail_generated(&app_handle, path_str, &thumbnail_path, rating, is_edited);
             }
 
             if !thumbnail_generation_cancelled(&state, thumbnail_generation) {
@@ -2579,13 +2885,8 @@ pub async fn reset_adjustments_for_paths(
                 &thumbnail_context,
             );
 
-            if !thumbnail_generation_cancelled(&state, thumbnail_generation)
-                && let Some((thumbnail_data, rating, is_edited)) = result
-            {
-                let _ = app_handle.emit(
-                    "thumbnail-generated",
-                    serde_json::json!({ "path": path_str, "data": thumbnail_data, "rating": rating, "is_edited": is_edited }),
-                );
+            if let Some((thumbnail_path, rating, is_edited)) = result {
+                emit_thumbnail_generated(&app_handle, path_str, &thumbnail_path, rating, is_edited);
             }
 
             if !thumbnail_generation_cancelled(&state, thumbnail_generation) {
@@ -2702,13 +3003,8 @@ pub async fn apply_auto_adjustments_to_paths(
                 &thumbnail_context,
             );
 
-            if !thumbnail_generation_cancelled(&state, thumbnail_generation)
-                && let Some((thumbnail_data, rating, is_edited)) = result
-            {
-                let _ = app_handle.emit(
-                    "thumbnail-generated",
-                    serde_json::json!({ "path": path, "data": thumbnail_data, "rating": rating, "is_edited": is_edited  }),
-                );
+            if let Some((thumbnail_path, rating, is_edited)) = result {
+                emit_thumbnail_generated(&app_handle, path, &thumbnail_path, rating, is_edited);
             }
 
             if !thumbnail_generation_cancelled(&state, thumbnail_generation) {
@@ -4000,16 +4296,20 @@ pub fn extract_xmp_tags(content: &str) -> Vec<String> {
     tags
 }
 
-pub fn sync_metadata_from_xmp(source_path: &Path, metadata: &mut ImageMetadata) -> bool {
-    let xmp_path = source_path.with_extension("xmp");
-    let xmp_path_upper = source_path.with_extension("XMP");
-    let actual_xmp = if xmp_path.exists() {
+pub fn resolve_xmp_path(image_path: &Path) -> Option<PathBuf> {
+    let xmp_path = image_path.with_extension("xmp");
+    let xmp_path_upper = image_path.with_extension("XMP");
+    if xmp_path.exists() {
         Some(xmp_path)
     } else if xmp_path_upper.exists() {
         Some(xmp_path_upper)
     } else {
         None
-    };
+    }
+}
+
+pub fn sync_metadata_from_xmp(source_path: &Path, metadata: &mut ImageMetadata) -> bool {
+    let actual_xmp = resolve_xmp_path(source_path);
 
     let mut changed = false;
 

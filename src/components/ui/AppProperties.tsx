@@ -161,6 +161,13 @@ export enum SortDirection {
   Descending = 'desc',
 }
 
+export type FolderSortKey = 'name' | 'modified' | 'created' | 'imageCount';
+
+export interface FolderTreeSort {
+  key: FolderSortKey;
+  order: SortDirection;
+}
+
 export enum Theme {
   Arctic = 'arctic',
   Blue = 'blue',
@@ -202,6 +209,8 @@ export interface AppSettings {
   enableLivePreviews?: boolean;
   livePreviewQuality?: string;
   enableAiTagging?: boolean;
+  aiTagCount?: number;
+  customAiTags?: string[];
   filterCriteria?: FilterCriteria;
   lastFolderState?: any;
   recentFolders?: string[];
@@ -249,6 +258,11 @@ export interface AppSettings {
   folderIcons?: Record<string, string>;
   exifOverlay?: ExifOverlay;
   language?: string;
+  fontFamily?: string;
+  folderTreeSort?: FolderTreeSort;
+  rootFolders?: string[];
+  taggingShortcuts?: string[];
+  libraryDisplayMode?: LibraryDisplayMode;
 }
 
 export interface BrushSettings {
@@ -292,10 +306,7 @@ export interface ImageFile {
   tags: Array<string> | null;
   exif: { [key: string]: string } | null;
   is_virtual_copy: boolean;
-  googlePhotosMediaId?: string;
-  googlePhotosProductUrl?: string;
-  googlePhotosBaseUrl?: string;
-  filename?: string;
+  is_cloud_placeholder: boolean;
 }
 
 export interface Option {
@@ -355,11 +366,16 @@ export interface SupportedTypes {
   raw: Array<string>;
 }
 
+export enum LibraryDisplayMode {
+  Grid = 'grid',
+  Cull = 'cull',
+  List = 'list',
+}
+
 export enum ThumbnailSize {
   Large = 'large',
   Medium = 'medium',
   Small = 'small',
-  List = 'list',
 }
 
 export interface TransformState {

@@ -5,7 +5,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useEditorStore } from '../store/useEditorStore';
-import { GOOGLE_PHOTOS_FOLDER_PATH, useGooglePhotosStore } from '../store/useGooglePhotosStore';
+import { useProcessStore } from '../store/useProcessStore';
 import { THEMES, DEFAULT_THEME_ID, ThemeProps } from '../utils/themes';
 import { COPYABLE_ADJUSTMENT_KEYS } from '../utils/adjustments';
 import {
@@ -39,12 +39,11 @@ const getDefaultLanguage = (i18nInstance: any): string => {
       ? i18nInstance.options.fallbackLng
       : i18nInstance.options.fallbackLng?.[0] || 'en';
 
-  // Check full locale first (e.g., 'zh-CN'), then short code (e.g., 'zh')
   return supportedLanguages.includes(browserLang)
     ? browserLang
     : supportedLanguages.includes(shortLang)
-    ? shortLang
-    : fallbackLang;
+      ? shortLang
+      : fallbackLang;
 };
 
 const isVirtualLibraryPath = (path: string | null | undefined): boolean => {
@@ -125,6 +124,7 @@ export const useAppInitialization = ({
   const isAndroid = osPlatform === 'android';
   const defaultThumbnailSize = isAndroid ? ThumbnailSize.Small : ThumbnailSize.Medium;
   const defaultLibraryViewMode = isAndroid ? LibraryViewMode.Recursive : LibraryViewMode.Flat;
+  const prevImageCountsNeed = useRef<boolean | undefined>(undefined);
 
   useEffect(() => {
     initPlatform();
@@ -180,10 +180,17 @@ export const useAppInitialization = ({
         setThumbnailSize(settings?.thumbnailSize ?? defaultThumbnailSize);
         if (settings?.thumbnailAspectRatio) setThumbnailAspectRatio(settings.thumbnailAspectRatio);
 
-        if (settings?.googlePhotosIntegrationEnabled) {
-          invoke(Invokes.GooglePhotosGetSyncIndex)
-            .then((index: any) => useGooglePhotosStore.getState().setSyncedEntries(index || {}))
-            .catch((err) => console.error('Failed to load Google Photos sync index:', err));
+        if (settings?.pinnedFolders && settings.pinnedFolders.length > 0) {
+          try {
+            const trees = await invoke(Invokes.GetPinnedFolderTrees, {
+              paths: settings.pinnedFolders,
+              expandedFolders: settings.lastFolderState?.expandedFolders || [],
+              showImageCounts: settings.enableFolderImageCounts || settings.folderTreeSort?.key === 'imageCount',
+            });
+            setLibrary({ pinnedFolderTrees: trees });
+          } catch (err) {
+            console.error('Failed to load pinned folder trees:', err);
+          }
         }
 
         const rootFolders = settings.rootFolders?.length
@@ -205,7 +212,7 @@ export const useAppInitialization = ({
             trees: invoke(Invokes.GetFolderTrees, {
               paths: rootFolders,
               expandedFolders: settings.lastFolderState?.expandedFolders ?? rootFolders,
-              showImageCounts: settings.enableFolderImageCounts ?? false,
+              showImageCounts: settings.enableFolderImageCounts || settings.folderTreeSort?.key === 'imageCount',
             }),
             images: isVirtualLibraryPath(currentPath) ? undefined : invoke(command, { path: currentPath }),
           };
@@ -218,7 +225,15 @@ export const useAppInitialization = ({
           });
         }
 
-        invoke('frontend_ready').catch((e) => console.error('Failed to notify backend of readiness:', e));
+        invoke('frontend_ready')
+          .then((launch: any) => {
+            if (launch?.editSession) {
+              useProcessStore.getState().setProcess({ externalEditSession: launch.editSession });
+            } else if (launch?.openWithFile) {
+              useProcessStore.getState().setProcess({ initialFileToOpen: launch.openWithFile });
+            }
+          })
+          .catch((e) => console.error('Failed to notify backend of readiness:', e));
       })
       .catch((err) => {
         console.error('Failed to load settings:', err);
@@ -330,6 +345,73 @@ export const useAppInitialization = ({
       });
     }
   }, [currentFolderPath, expandedFolders, activeAlbumId, expandedAlbumGroups, appSettings, handleSettingsChange]);
+
+  useEffect(() => {
+    if (!appSettings) return;
+
+    const needsImageCounts = Boolean(
+      appSettings.enableFolderImageCounts || appSettings.folderTreeSort?.key === 'imageCount',
+    );
+
+    if (prevImageCountsNeed.current === undefined) {
+      prevImageCountsNeed.current = needsImageCounts;
+      return;
+    }
+
+    if (prevImageCountsNeed.current !== needsImageCounts) {
+      prevImageCountsNeed.current = needsImageCounts;
+
+      const rootFolders = appSettings.rootFolders?.length
+        ? appSettings.rootFolders
+        : appSettings.lastRootPath
+          ? [appSettings.lastRootPath]
+          : [];
+      const pinnedFolders = appSettings.pinnedFolders || [];
+
+      const currentExpanded = Array.from(useLibraryStore.getState().expandedFolders);
+
+      setLibrary({ isTreeLoading: true });
+
+      const promises = [];
+
+      if (pinnedFolders.length > 0) {
+        promises.push(
+          invoke(Invokes.GetPinnedFolderTrees, {
+            paths: pinnedFolders,
+            expandedFolders: currentExpanded,
+            showImageCounts: needsImageCounts,
+          }).then((trees: any) => ({ type: 'pinned', trees })),
+        );
+      }
+
+      if (rootFolders.length > 0) {
+        promises.push(
+          invoke(Invokes.GetPinnedFolderTrees, {
+            paths: rootFolders,
+            expandedFolders: currentExpanded,
+            showImageCounts: needsImageCounts,
+          }).then((trees: any) => ({ type: 'root', trees })),
+        );
+      }
+
+      Promise.all(promises)
+        .then((results) => {
+          useLibraryStore.getState().setLibrary((_state) => {
+            const updates: any = { isTreeLoading: false };
+            results.forEach((res) => {
+              if (res.type === 'pinned') updates.pinnedFolderTrees = res.trees;
+              if (res.type === 'root') updates.folderTrees = res.trees;
+            });
+            return updates;
+          });
+        })
+        .catch((err) => {
+          console.error('Failed to re-fetch trees for image counts:', err);
+          setLibrary({ isTreeLoading: false });
+        });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appSettings?.enableFolderImageCounts, appSettings?.folderTreeSort?.key]);
 
   useEffect(() => {
     const root = document.documentElement;

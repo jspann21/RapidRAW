@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { motion, LayoutGroup } from 'framer-motion';
 import {
   SlidersHorizontal,
   Info,
@@ -51,6 +51,7 @@ export default function RightPanelSwitcher({
   const isHorizontal = layout === 'horizontal';
 
   return (
+    <LayoutGroup id="right-panel-switcher">
     <div className={isHorizontal ? 'flex items-center overflow-x-auto p-1 gap-1' : 'flex flex-col p-1 gap-1 h-full'}>
       {panelGroups.map((group, groupIndex) => (
         <div key={groupIndex} className={isHorizontal ? 'flex items-center gap-1' : 'flex flex-col gap-1'}>
@@ -83,5 +84,6 @@ export default function RightPanelSwitcher({
         </div>
       ))}
     </div>
+    </LayoutGroup>
   );
 }

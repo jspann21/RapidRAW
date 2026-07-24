@@ -28,6 +28,7 @@ import Text from '../../ui/Text';
 import { TextColors, TextVariants, TextWeights, TEXT_COLOR_KEYS } from '../../../types/typography';
 import Button from '../../ui/Button';
 import { useSettingsStore } from '../../../store/useSettingsStore';
+import { useUIStore } from '../../../store/useUIStore';
 import { ADVANCED_QUERY_REGEX } from '../../../hooks/useSortedLibrary';
 
 function DropdownMenu({ buttonContent, buttonTitle, children, contentClassName = 'w-56' }: any) {
@@ -88,6 +89,8 @@ export function SearchInput({ indexingProgress, isIndexing }: any) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const { tags, text, mode } = searchCriteria;
+  const searchFocusRequest = useUIStore((state) => state.searchFocusRequest);
+  const lastSearchFocusRequest = useRef(searchFocusRequest);
 
   const [contentWidth, setContentWidth] = useState(0);
 
@@ -96,6 +99,13 @@ export function SearchInput({ indexingProgress, isIndexing }: any) {
       inputRef.current?.focus();
     }
   }, [isSearchActive]);
+
+  useEffect(() => {
+    if (searchFocusRequest === lastSearchFocusRequest.current) return;
+    lastSearchFocusRequest.current = searchFocusRequest;
+    setIsSearchActive(true);
+    inputRef.current?.focus();
+  }, [searchFocusRequest]);
 
   useEffect(() => {
     function handleClickOutside(event: any) {

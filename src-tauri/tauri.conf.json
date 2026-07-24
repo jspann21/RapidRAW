@@ -22,8 +22,12 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' tauri: asset: https://asset.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' tauri: asset: https://asset.localhost data: blob: file: https:; font-src 'self' data:; connect-src ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https://accounts.google.com https://oauth2.googleapis.com https://photoslibrary.googleapis.com https://raw.githubusercontent.com https://getrapidraw.com https://www.getrapidraw.com https://*.clerk.accounts.dev https://*.clerk.com; frame-src https://accounts.google.com https://www.openstreetmap.org https://*.clerk.accounts.dev https://*.clerk.com; object-src 'none'; base-uri 'none'; form-action 'self'",
-      "capabilities": ["default"]
+      "csp": null,
+      "capabilities": ["default"],
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPCACHE/thumbnails/*"]
+      }
     },
     "macOSPrivateApi": true
   },
@@ -89,5 +93,5 @@
       }
     }
   },
-  "version": "1.5.7"
+  "version": "1.5.9"
 }

@@ -451,7 +451,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
   );
 
   const handleThumbnailContextMenu = useCallback(
-    (event: any, path: string) => {
+    (event: any, path: string, forceSingleSelection: boolean = false) => {
       event.preventDefault();
       event.stopPropagation();
 
@@ -466,7 +466,9 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       const isTargetInSelection = multiSelectedPaths.includes(path);
       let finalSelection: string[];
 
-      if (!isTargetInSelection) {
+      if (forceSingleSelection) {
+        finalSelection = [path];
+      } else if (!isTargetInSelection) {
         finalSelection = [path];
         setLibrary({ multiSelectedPaths: [path] });
         if (!selectedImage) {

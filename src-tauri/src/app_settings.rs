@@ -43,6 +43,22 @@ impl Default for FilterCriteria {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct FolderTreeSort {
+    pub key: String,
+    pub order: String,
+}
+
+impl Default for FolderTreeSort {
+    fn default() -> Self {
+        Self {
+            key: "name".to_string(),
+            order: "asc".to_string(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct LastFolderState {
     #[serde(default)]
     pub current_folder_path: Option<String>,
@@ -73,6 +89,9 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "brightness",
         "contrast",
         "curves",
+        "pointCurves",
+        "parametricCurve",
+        "curveMode",
         "highlights",
         "shadows",
         "whites",
@@ -83,6 +102,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "saturation",
         "vibrance",
         "hsl",
+        "hue",
         "colorGrading",
         "colorCalibration",
         "clarity",
@@ -185,6 +205,8 @@ pub struct CopyPasteSettings {
     pub included_adjustments: HashSet<String>,
     #[serde(default)]
     pub known_adjustments: HashSet<String>,
+    #[serde(default)]
+    pub auto_sync: bool,
 }
 
 impl Default for CopyPasteSettings {
@@ -193,6 +215,7 @@ impl Default for CopyPasteSettings {
             mode: PasteMode::Merge,
             included_adjustments: default_included_adjustments(),
             known_adjustments: all_available_adjustments(),
+            auto_sync: false,
         }
     }
 }
@@ -405,6 +428,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub linux_gpu_optimization: Option<bool>,
     #[serde(default)]
+    pub linux_gpu_optimization_migrated_v1: Option<bool>,
+    #[serde(default)]
     pub library_view_mode: Option<String>,
     #[serde(default = "default_export_presets")]
     pub export_presets: Vec<ExportPreset>,
@@ -468,6 +493,10 @@ pub struct AppSettings {
     pub exif_overlay: Option<String>,
     #[serde(default)]
     pub language: Option<String>,
+    #[serde(default)]
+    pub folder_tree_sort: Option<FolderTreeSort>,
+    #[serde(default)]
+    pub library_display_mode: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -514,10 +543,8 @@ impl Default for AppSettings {
             copy_paste_settings: CopyPasteSettings::default(),
             raw_highlight_compression: Some(2.5),
             processing_backend: Some("auto".to_string()),
-            #[cfg(target_os = "linux")]
-            linux_gpu_optimization: Some(true),
-            #[cfg(not(target_os = "linux"))]
             linux_gpu_optimization: Some(false),
+            linux_gpu_optimization_migrated_v1: Some(true),
             library_view_mode: Some("flat".to_string()),
             export_presets: default_export_presets(),
             my_lenses: Some(Vec::new()),
@@ -563,6 +590,8 @@ impl Default for AppSettings {
             apply_preprocessing_to_non_raws: Some(false),
             exif_overlay: Some("off".to_string()),
             language: Some("en".to_string()),
+            folder_tree_sort: Some(FolderTreeSort::default()),
+            library_display_mode: Some("grid".to_string()),
         }
     }
 }
@@ -620,27 +649,12 @@ pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
         settings_modified = true;
     }
 
-    if !settings.pinned_folders.is_empty() {
-        for pinned in &settings.pinned_folders {
-            if !settings.root_folders.iter().any(|root| root == pinned) {
-                settings.root_folders.push(pinned.clone());
-            }
+    #[cfg(target_os = "linux")]
+    if !settings.linux_gpu_optimization_migrated_v1.unwrap_or(false) {
+        if settings.linux_gpu_optimization == Some(true) {
+            settings.linux_gpu_optimization = Some(false);
         }
-        settings.pinned_folders.clear();
-        settings_modified = true;
-    }
-
-    if settings
-        .open_tree_sections
-        .iter()
-        .any(|section| section == "pinned")
-    {
-        settings
-            .open_tree_sections
-            .retain(|section| section != "pinned");
-        if settings.open_tree_sections.is_empty() {
-            settings.open_tree_sections = default_open_tree_sections();
-        }
+        settings.linux_gpu_optimization_migrated_v1 = Some(true);
         settings_modified = true;
     }
 

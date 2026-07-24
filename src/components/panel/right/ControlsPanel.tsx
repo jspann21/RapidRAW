@@ -28,7 +28,7 @@ export default function Controls() {
   const { showContextMenu } = useContextMenu();
   const { isResizingWaveform, onToggleWaveform, setActiveWaveformChannel, handleWaveformResize } =
     useWaveformControls();
-  const { setAdjustments, handleAutoAdjustments, handleLutSelect } = useEditorActions();
+  const { setAdjustments, handleAutoAdjustments, handleLutSelect, setLutPreviewOverride } = useEditorActions();
 
   const { appSettings, theme } = useSettingsStore(
     useShallow((state) => ({
@@ -274,7 +274,7 @@ export default function Controls() {
         )}
       </AnimatePresence>
 
-      <div className="grow overflow-y-auto p-4 flex flex-col gap-2">
+      <div className="grow overflow-y-scroll p-4 flex flex-col gap-2">
         {Object.keys(ADJUSTMENT_SECTIONS).map((sectionName: string) => {
           const SectionComponent: any = {
             basic: BasicAdjustments,
@@ -303,6 +303,7 @@ export default function Controls() {
                   histogram={histogram}
                   theme={theme}
                   handleLutSelect={handleLutSelect}
+                  onLutHover={setLutPreviewOverride}
                   appSettings={appSettings}
                   isWbPickerActive={isWbPickerActive}
                   toggleWbPicker={toggleWbPicker}

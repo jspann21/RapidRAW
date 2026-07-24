@@ -211,6 +211,18 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     defaultCombo: ['KeyT'],
     section: 'library',
   },
+  {
+    action: 'open_settings',
+    description: 'settings.keybinds.actions.open_settings',
+    defaultCombo: ['ctrl', 'Comma'],
+    section: 'library',
+  },
+  {
+    action: 'focus_search',
+    description: 'settings.keybinds.actions.focus_search',
+    defaultCombo: ['ctrl', 'KeyF'],
+    section: 'library',
+  },
   { action: 'undo', description: 'settings.keybinds.actions.undo', defaultCombo: ['ctrl', 'KeyZ'], section: 'editing' },
   { action: 'redo', description: 'settings.keybinds.actions.redo', defaultCombo: ['ctrl', 'KeyY'], section: 'editing' },
   {
@@ -303,7 +315,9 @@ export function normalizeCombo(event: KeyboardEvent, osPlatform?: string): strin
   if (event.shiftKey) parts.push('shift');
   if (event.altKey) parts.push('alt');
   let code = isMacDelete ? 'Delete' : event.code;
-  if (/^Numpad[0-9]$/.test(code)) {
+  if (event.key && /^[a-zA-Z]$/.test(event.key)) {
+    code = `Key${event.key.toUpperCase()}`;
+  } else if (/^Numpad[0-9]$/.test(code)) {
     code = `Digit${code.slice(-1)}`;
   } else if (code === 'NumpadAdd') {
     code = 'Equal';

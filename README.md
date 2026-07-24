@@ -73,6 +73,23 @@ RapidRAW is still in active development and isn't yet as polished as mature tool
 <details>
 <summary><strong>Recent Changes</strong></summary>
 
+- **2026-07-11:** Added new local Clone and Heal cleanup tools with highly optimized, parallelized processing. Also fixed Android back-button navigation and resolved an issue causing freezes with iCloud
+- **2026-07-08:** Improved thumbnail loading speeds using native file transfers and updated core rendering engines for better overall performance and compatibility
+- **2026-07-06:** Fixed copying adjustments directly from the filmstrip, resolved AI model and LUT download issues on Android, and fixed several Windows-specific bugs (including offscreen windows and folder exports)
+- **2026-07-05:** Implemented advanced HDR deghosting with new grayscale image alignment and warping mechanics to prevent visual artifacts during HDR merges
+- **2026-07-03:** Added "Open With" external editor support and implemented a fallback to embedded previews for undecodable or unsupported RAW files
+- **2026-06-29:** Completely reworked the shadows and blacks adjustments, and introduced a new LUT preview panel with hover-to-test functionality, easy importing, and removal support
+- **2026-06-25:** Implemented folder sorting, reliable image/album counts, and fixed folder expansion race conditions
+- **2026-06-20:** Added quick filters to the bottom bar and integrated global hue shifts into the copy-paste system
+- **2026-06-18:** New preset intensity slider
+- **2026-06-14:** Added Korean translation support and integrated the global hue slider
+
+<details>
+<summary><strong>Expand further</strong></summary>
+
+- **2026-06-12:** Refined and standardized Traditional Chinese translations
+- **2026-06-10:** Completed i18next configuration and added Traditional Chinese locale support
+- **2026-06-08:** Resolved infinite indexing loops, brightness bugs, and general compiler warnings
 - **2026-06-07:** Fixed copy-pasting, improved library performance & eight new languages
 - **2026-06-01:** Improved thumbnail performance, polished metadata panel & non-blocking exif reading
 - **2026-05-30:** Implemented reliable edited status, sorting & filtering options
@@ -83,10 +100,6 @@ RapidRAW is still in active development and isn't yet as polished as mature tool
 - **2026-05-24:** Added advanced library filtering capabilities (queries)
 - **2026-05-20:** Introduced a dedicated EXIF data overlay display directly inside the library and list views
 - **2026-05-18:** Added global image preprocessing settings, numpad support for customizable keyboard shortcuts, and updated the "Grey" theme color variables
-
-<details>
-<summary><strong>Expand further</strong></summary>
-
 - **2026-05-16:** Initial backend implementation of the cloud service functionality alongside a preview worker backpressure mechanism for better handling of high-quality live previews
 - **2026-05-15:** Added the ability to assign custom icons to individual folders in the library tree
 - **2026-05-14:** Expanded the library architecture to support multi-root folders and introduced a custom album system

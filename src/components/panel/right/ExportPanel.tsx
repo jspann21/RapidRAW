@@ -474,7 +474,8 @@ export default function ExportPanel({
       const selectedFormat: any = FILE_FORMATS.find((f) => f.id === fileFormat);
 
       let outputFolderOrFile = '';
-      if (numImages === 1) {
+      const shouldChooseOutputFile = numImages === 1 && !preserveFolders;
+      if (shouldChooseOutputFile) {
         const originalFilename = pathsToExport[0].split(/[\\/]/).pop() || '';
         const stem = originalFilename.substring(0, originalFilename.lastIndexOf('.')) || originalFilename;
         const suggestedName = finalFilenameTemplate.replace('{original_filename}', stem);
@@ -505,13 +506,12 @@ export default function ExportPanel({
 
       if (isAndroid || outputFolderOrFile) {
         if (!isAndroid) {
-          const dir =
-            numImages === 1
-              ? outputFolderOrFile.substring(
-                  0,
-                  Math.max(outputFolderOrFile.lastIndexOf('/'), outputFolderOrFile.lastIndexOf('\\')),
-                )
-              : outputFolderOrFile;
+          const dir = shouldChooseOutputFile
+            ? outputFolderOrFile.substring(
+                0,
+                Math.max(outputFolderOrFile.lastIndexOf('/'), outputFolderOrFile.lastIndexOf('\\')),
+              )
+            : outputFolderOrFile;
           if (dir) saveLastUsedPreset(dir);
         }
 
@@ -519,7 +519,7 @@ export default function ExportPanel({
         await invoke(Invokes.ExportImages, {
           paths: pathsToExport,
           outputFolderOrFile: outputFolderOrFile,
-          isExplicitFilePath: numImages === 1,
+          isExplicitFilePath: shouldChooseOutputFile,
           baseOriginFolders: rootPaths,
           exportSettings,
           outputFormat: selectedFormat.extensions[0],
@@ -598,7 +598,7 @@ export default function ExportPanel({
                     }
                     max={100}
                     min={1}
-                    onChange={(e) => setJpegQuality(parseInt(e.target.value))}
+                    onChange={(e) => setJpegQuality(Number(e.target.value))}
                     step={1}
                     value={jpegQuality}
                     fillOrigin="min"
@@ -607,7 +607,7 @@ export default function ExportPanel({
               )}
             </Section>
 
-            {(numImages > 1 || onClose) && (
+            {numImages > 1 && (
               <Section title={t('export.sections.fileNaming')}>
                 <input
                   className="w-full bg-surface border border-surface rounded-md p-2 text-sm text-text-primary focus:ring-accent focus:border-accent"
@@ -728,7 +728,7 @@ export default function ExportPanel({
                               max={50}
                               step={1}
                               value={watermarkScale}
-                              onChange={(e) => setWatermarkScale(parseInt(e.target.value))}
+                              onChange={(e) => setWatermarkScale(Number(e.target.value))}
                               disabled={isExporting}
                               defaultValue={10}
                             />
@@ -738,7 +738,7 @@ export default function ExportPanel({
                               max={25}
                               step={1}
                               value={watermarkSpacing}
-                              onChange={(e) => setWatermarkSpacing(parseInt(e.target.value))}
+                              onChange={(e) => setWatermarkSpacing(Number(e.target.value))}
                               disabled={isExporting}
                               defaultValue={5}
                             />
@@ -748,7 +748,7 @@ export default function ExportPanel({
                               max={100}
                               step={1}
                               value={watermarkOpacity}
-                              onChange={(e) => setWatermarkOpacity(parseInt(e.target.value))}
+                              onChange={(e) => setWatermarkOpacity(Number(e.target.value))}
                               disabled={isExporting}
                               defaultValue={75}
                             />

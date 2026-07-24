@@ -2,13 +2,16 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Cursor;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, GenericImageView, GrayImage, ImageBuffer, ImageFormat, Luma, imageops};
-use jxl_encoder::{LosslessConfig, LossyConfig, PixelLayout};
+use jxl_encoder::{
+    LosslessConfig, LossyConfig, PixelLayout,
+    api::{calibrated_jxl_quality, quality_to_distance},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::Emitter;
@@ -29,14 +32,15 @@ use crate::image_processing::{
     get_all_adjustments_from_json, get_or_init_gpu_context, process_and_get_dynamic_image,
     resolve_tonemapper_override_from_handle,
 };
-use crate::lut_processing::{convert_image_to_cube_lut, generate_identity_lut_image};
+use crate::lut_processing::{
+    convert_image_to_cube_lut, generate_identity_lut_image, get_or_load_lut,
+};
 use crate::mask_generation::{MaskDefinition, generate_mask_bitmap};
 
 use crate::cache_utils::{calculate_full_job_hash, calculate_transform_hash};
 use crate::{
     apply_all_transformations, generate_transformed_preview, get_cached_or_generate_mask,
-    get_full_image_for_processing, get_or_load_lut, hydrate_adjustments, load_settings,
-    resolve_warped_image_for_masks,
+    hydrate_adjustments, load_settings, resolve_warped_image_for_masks,
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -190,6 +194,68 @@ fn calculate_resize_target(
         let w = (value as f32 * (current_w as f32 / current_h as f32)).round() as u32;
         (w, value)
     }
+}
+
+fn relative_dir_is_safe(rel_dir: &Path) -> bool {
+    rel_dir.components().all(|component| {
+        matches!(
+            component,
+            std::path::Component::Normal(_) | std::path::Component::CurDir
+        )
+    })
+}
+
+#[cfg(windows)]
+fn component_matches(left: std::path::Component<'_>, right: std::path::Component<'_>) -> bool {
+    left.as_os_str()
+        .to_string_lossy()
+        .eq_ignore_ascii_case(&right.as_os_str().to_string_lossy())
+}
+
+#[cfg(not(windows))]
+fn component_matches(left: std::path::Component<'_>, right: std::path::Component<'_>) -> bool {
+    left == right
+}
+
+fn strip_prefix_preserving_source_case(source_path: &Path, base_path: &Path) -> Option<PathBuf> {
+    let source_components: Vec<_> = source_path.components().collect();
+    let base_components: Vec<_> = base_path.components().collect();
+
+    if base_components.len() > source_components.len() {
+        return None;
+    }
+
+    if !source_components
+        .iter()
+        .zip(base_components.iter())
+        .all(|(source, base)| component_matches(*source, *base))
+    {
+        return None;
+    }
+
+    Some(source_components[base_components.len()..].iter().collect())
+}
+
+fn relative_export_dir_for_preserved_folders(
+    source_path: &Path,
+    base_origin_folders: &[String],
+) -> Option<PathBuf> {
+    base_origin_folders
+        .iter()
+        .filter_map(|base| {
+            let base_path = Path::new(base);
+            strip_prefix_preserving_source_case(source_path, base_path)
+                .map(|rel_path| (base_path.components().count(), rel_path))
+        })
+        .max_by_key(|(component_count, _)| *component_count)
+        .and_then(|(_, rel_path)| {
+            let rel_dir = rel_path.parent().unwrap_or_else(|| Path::new(""));
+            if relative_dir_is_safe(rel_dir) {
+                Some(rel_dir.to_path_buf())
+            } else {
+                None
+            }
+        })
 }
 
 fn apply_export_resize_and_watermark(
@@ -412,8 +478,8 @@ fn encode_image_to_bytes(
                         .map_err(|e| format!("Failed to encode lossless JXL: {}", e))?
                 }
             } else {
-                let distance = (100.0 - jpeg_quality as f32) / 10.0;
-                let distance = distance.max(0.01);
+                let jxl_quality = calibrated_jxl_quality(jpeg_quality as f32);
+                let distance = quality_to_distance(jxl_quality);
 
                 if has_alpha {
                     let rgba = image.to_rgba8();
@@ -635,6 +701,23 @@ fn export_adjustments_as_lut(
     convert_image_to_cube_lut(&processed_lut, lut_size)
 }
 
+struct ExportHandleGuard {
+    app_handle: tauri::AppHandle,
+}
+
+impl Drop for ExportHandleGuard {
+    fn drop(&mut self) {
+        if let Ok(mut handle_lock) = self
+            .app_handle
+            .state::<AppState>()
+            .export_task_handle
+            .lock()
+        {
+            *handle_lock = None;
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn export_images(
@@ -684,12 +767,12 @@ pub async fn export_images(
 
     let available_ram_gb = sys.available_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
 
-    let ram_based_limit = (available_ram_gb / 2.5).floor() as usize;
+    let ram_based_limit = (available_ram_gb / 4.0).floor() as usize;
 
     let num_threads = if paths.len() == 1 {
         1
     } else {
-        available_cores.min(ram_based_limit).clamp(1, 16)
+        available_cores.min(ram_based_limit).clamp(1, 4)
     };
 
     log::info!(
@@ -700,6 +783,9 @@ pub async fn export_images(
     );
 
     let task = tokio::spawn(async move {
+        let _export_guard = ExportHandleGuard {
+            app_handle: app_handle.clone(),
+        };
         let output_folder_path = std::path::Path::new(&output_folder_or_file);
         let total_paths = paths.len();
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
@@ -804,33 +890,15 @@ pub async fn export_images(
                 let output_path = if is_explicit_file_path && total_paths == 1 {
                     output_folder_path
                 } else if export_settings.preserve_folders {
-                    let matched_base = base_origin_folders
-                        .iter()
-                        .map(std::path::Path::new)
-                        .find(|b| source_path.starts_with(b));
-                    if let Some(base_origin) = matched_base {
-                        if let Ok(rel_path) = source_path.strip_prefix(base_origin) {
-                            let rel_dir = rel_path
-                                .parent()
-                                .unwrap_or_else(|| std::path::Path::new(""));
-                            let rel_dir_is_safe = rel_dir.components().all(|component| {
-                                matches!(
-                                    component,
-                                    std::path::Component::Normal(_) | std::path::Component::CurDir
-                                )
-                            });
-                            if rel_dir_is_safe {
-                                let full_dir = output_folder_path.join(rel_dir);
-                                if let Err(e) = std::fs::create_dir_all(&full_dir) {
-                                    log::warn!("Failed to create export subdirectory: {}", e);
-                                }
-                                full_dir.join(&new_filename)
-                            } else {
-                                output_folder_path.join(&new_filename)
-                            }
-                        } else {
-                            output_folder_path.join(&new_filename)
+                    if let Some(rel_dir) = relative_export_dir_for_preserved_folders(
+                        source_path.as_path(),
+                        &base_origin_folders,
+                    ) {
+                        let full_dir = output_folder_path.join(rel_dir);
+                        if let Err(e) = std::fs::create_dir_all(&full_dir) {
+                            log::warn!("Failed to create export subdirectory: {}", e);
                         }
+                        full_dir.join(&new_filename)
                     } else {
                         output_folder_path.join(&new_filename)
                     }
@@ -867,9 +935,9 @@ pub async fn export_images(
                     }
 
                     let base_image = if is_current_edit {
-                        match get_full_image_for_processing(&state) {
-                            Ok((orig_data, _)) => {
-                                composite_patches_on_image(&orig_data, &js_adjustments)
+                        match crate::get_original_image(&state) {
+                            Ok((orig_data_arc, _)) => {
+                                composite_patches_on_image(&orig_data_arc, &js_adjustments)
                                     .map_err(|e| format!("Failed to composite AI patches: {}", e))?
                             }
                             Err(_) => {
@@ -1008,12 +1076,6 @@ pub async fn export_images(
             );
             let _ = app_handle.emit("export-complete", ());
         }
-
-        *app_handle
-            .state::<AppState>()
-            .export_task_handle
-            .lock()
-            .unwrap() = None;
     });
 
     *state.export_task_handle.lock().unwrap() = Some(task);

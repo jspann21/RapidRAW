@@ -6,6 +6,7 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use image::{DynamicImage, GrayImage};
 use serde::{Deserialize, Serialize};
+use sysinfo::Disks;
 use tokio::sync::Mutex as TokioMutex;
 use tokio::task::JoinHandle;
 use wgpu::{Texture, TextureView};
@@ -17,6 +18,15 @@ use crate::image_processing::GpuContext;
 use crate::lens_correction::LensDatabase;
 use crate::local_comfy::LocalComfyProcess;
 use crate::lut_processing::Lut;
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalEditSession {
+    pub source: String,
+    pub output: String,
+    pub format: String,
+    pub jpeg_quality: u8,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct WindowState {
@@ -93,6 +103,8 @@ pub struct ThumbnailManager {
     pub queue: Mutex<VecDeque<String>>,
     pub cvar: Condvar,
     pub processing_now: Mutex<HashSet<String>>,
+    pub rotational_disk: AtomicBool,
+    pub io_gate: Mutex<()>,
 }
 
 impl ThumbnailManager {
@@ -101,6 +113,30 @@ impl ThumbnailManager {
             queue: Mutex::new(VecDeque::new()),
             cvar: Condvar::new(),
             processing_now: Mutex::new(HashSet::new()),
+            rotational_disk: AtomicBool::new(false),
+            io_gate: Mutex::new(()),
+        })
+    }
+}
+
+pub struct PendingMetadata {
+    pub virtual_path: String,
+    pub image_path: PathBuf,
+    pub sidecar_path: PathBuf,
+}
+
+pub struct MetadataManager {
+    pub queue: Mutex<VecDeque<PendingMetadata>>,
+    pub cvar: Condvar,
+    pub pending: Mutex<HashSet<PathBuf>>,
+}
+
+impl MetadataManager {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            queue: Mutex::new(VecDeque::new()),
+            cvar: Condvar::new(),
+            pending: Mutex::new(HashSet::new()),
         })
     }
 }
@@ -125,6 +161,7 @@ pub struct AppState {
     pub indexing_task_handle: Mutex<Option<JoinHandle<()>>>,
     pub lut_cache: Mutex<HashMap<String, Arc<Lut>>>,
     pub initial_file_path: Mutex<Option<String>>,
+    pub pending_edit_session: Mutex<Option<ExternalEditSession>>,
     pub thumbnail_cancellation_token: Arc<AtomicBool>,
     pub thumbnail_generation: Arc<AtomicUsize>,
     pub thumbnail_progress: Mutex<ThumbnailProgressTracker>,
@@ -140,4 +177,7 @@ pub struct AppState {
     pub full_transformed_cache: Mutex<Option<TransformedImageCache>>,
     pub decoded_image_cache: Mutex<DecodedImageCache>,
     pub thumbnail_manager: Arc<ThumbnailManager>,
+    pub metadata_manager: Arc<MetadataManager>,
+    pub disks_cache: Mutex<Option<Disks>>,
+    pub disks_cache_refreshing: AtomicBool,
 }

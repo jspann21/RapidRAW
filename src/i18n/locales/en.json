@@ -43,6 +43,7 @@
         "shadows": "Shadows"
       },
       "hue": "Hue",
+      "localHue": "Local Hue",
       "luminance": "Luminance",
       "mixerColors": {
         "aquas": "Aquas",
@@ -65,13 +66,13 @@
       "whiteBalance": "White Balance"
     },
     "curves": {
+      "channelTitle": "{{channel}} Channel",
       "channels": {
         "blue": "Blue",
         "green": "Green",
         "luma": "Luma",
         "red": "Red"
       },
-      "channelTitle": "{{channel}} Channel",
       "copyParametric": "Copy {{channel}} Parametric Curve",
       "copyPoint": "Copy {{channel}} Point Curve",
       "curveDataUnavailable": "Curve data not available.",
@@ -351,7 +352,9 @@
       "dropzoneText": "Drop here to create a new edit",
       "editSettingsTitle": "Edit Settings",
       "editsTitle": "Edits",
+      "generativeEditTitle": "Generative Edit",
       "inpaintingTitle": "Inpainting",
+      "manualCleanupTitle": "Manual Cleanup",
       "noImageSelected": "No image selected.",
       "params": {
         "feather": "Feather",
@@ -361,6 +364,12 @@
         "aiEdit": "AI Edit {{count}}",
         "aiEdit_one": "AI Edit {{count}}",
         "aiEdit_other": "AI Edit {{count}}",
+        "clone": "Clone {{count}}",
+        "clone_one": "Clone {{count}}",
+        "clone_other": "Clone {{count}}",
+        "heal": "Heal {{count}}",
+        "heal_one": "Heal {{count}}",
+        "heal_other": "Heal {{count}}",
         "invertedName": "{{name}} Inverted",
         "quickErase": "Quick Erase {{count}}",
         "quickErase_one": "Quick Erase {{count}}",
@@ -497,6 +506,11 @@
         "transform": "Perspective and keystone correction"
       }
     },
+    "externalEdit": {
+      "done": "Done",
+      "exporting": "Exporting…",
+      "savesTo": "External edit — saves to"
+    },
     "masks": {
       "actions": {
         "addNewComponent": "Add New Component",
@@ -579,6 +593,7 @@
       "tooltips": {
         "addToCurrent": "Add {{name}} to Current Mask or Create New (Right-click)",
         "createNew": "Create New {{name}} Mask",
+        "selectNewSourcePoint": "{{modifier}} + Click to select a new source point",
         "showMore": "Show More Mask Types"
       }
     },
@@ -625,8 +640,8 @@
       "organization": {
         "addTagPlaceholder": "Add tag...",
         "colorLabel": "Color Label",
-        "none": "None",
         "noTags": "No tags",
+        "none": "None",
         "rating": "Rating",
         "ratingLabels": "Rating & Labels",
         "tags": "Tags",
@@ -635,6 +650,7 @@
       "title": "Metadata"
     },
     "presets": {
+      "amount": "Amount",
       "dialog": {
         "allPresetFiles": "All Preset Files",
         "exportAllTitle": "Export All Presets",
@@ -769,12 +785,12 @@
       "estimatedSize": "Estimated file size: ~{{size}}",
       "estimatedTotalSize": "Estimated total size: ~{{size}}",
       "estimatingSize": "Estimating size...",
-      "exporting": "Exporting…",
-      "exportingProgress": "Exporting… ({{current}}/{{total}})",
       "exportMultiple": "Export {{count}} {{label}}",
       "exportMultiple_one": "Export {{count}} {{label}}",
       "exportMultiple_other": "Export {{count}} {{label}}",
       "exportSingle": "Export {{label}}",
+      "exporting": "Exporting…",
+      "exportingProgress": "Exporting… ({{current}}/{{total}})",
       "failed": "Export failed",
       "noImageSelected": "No image selected for export.",
       "noImagesSelected": "No images selected.",
@@ -819,6 +835,31 @@
         "name": "Name (A-Z)"
       }
     },
+    "culling": {
+      "addTagPlaceholder": "Add tag...",
+      "altCullingPreviewHighRes": "Culling Preview High Res",
+      "altThumbnailLoading": "Thumbnail Loading",
+      "aperture": "Aperture",
+      "cameraSettings": "Camera Settings",
+      "clickThumbnailsHint": "Click thumbnails in the right sidebar to add them to the comparison view.",
+      "colorLabel": "Color Label",
+      "dimensions": "Dimensions",
+      "editImage": "Edit Image",
+      "focalLength": "Focal Length",
+      "iso": "ISO",
+      "metadata": "Metadata",
+      "noMetadataAvailable": "No metadata available",
+      "noTagsAdded": "No tags added",
+      "none": "None",
+      "rateAndLabel": "Rate & Label",
+      "rating": "Rating",
+      "selectImagesToCompare": "Select images to compare",
+      "shutterSpeed": "Shutter Speed",
+      "syncZoomAndPan": "Sync Zoom and Pan",
+      "tags": "Tags",
+      "toggleFit": "Toggle 1:1 / Fit",
+      "vc": "VC"
+    },
     "filters": {
       "edited": {
         "all": "All Images",
@@ -858,10 +899,17 @@
         "folders": "Folders",
         "pinned": "Pinned"
       },
+      "sort": {
+        "created": "Date Created",
+        "imageCount": "Image Count",
+        "modified": "Date Modified",
+        "name": "Alphabetically"
+      },
       "tooltips": {
         "clearSearch": "Clear search",
         "collapse": "Collapse",
-        "expand": "Expand"
+        "expand": "Expand",
+        "sortFolders": "Sort Folders"
       }
     },
     "grid": {
@@ -917,6 +965,7 @@
       "progress": "Importing... ({{current}}/{{total}})"
     },
     "items": {
+      "cloudPlaceholder": "Stored in iCloud — not downloaded",
       "collapseFolder": "Collapse Folder",
       "currentFolder": "Current Folder",
       "expandFolder": "Expand Folder",
@@ -991,10 +1040,12 @@
     "types": {
       "all": "Whole Image",
       "brush": "Brush",
+      "clone": "Clone",
       "color": "Color",
       "depth": "Depth",
       "flow": "Flow",
       "foreground": "Foreground",
+      "heal": "Heal",
       "linear": "Linear",
       "luminance": "Luminance",
       "others": "Others",
@@ -1051,6 +1102,9 @@
       "confirm": "Confirm"
     },
     "copyPaste": {
+      "autoSyncDesc": "Automatically apply adjustments to all selected images.",
+      "autoSyncLabel": "Enable auto-sync",
+      "autoSyncTitle": "Auto-sync adjustments",
       "cancel": "Cancel",
       "descMerge": "Adds your copied changes, leaving other settings untouched.",
       "descReplace": "Overwrites all selected settings, resetting the rest to their defaults.",
@@ -1065,6 +1119,7 @@
         "exposureToneMapper": "Exposure & Tone Mapper",
         "grain": "Grain",
         "halationGlow": "Halation & Glow",
+        "hueShift": "Global Hue Shift",
         "lensCorrection": "Lens Correction",
         "lut": "LUT",
         "masks": "Masks",
@@ -1104,9 +1159,9 @@
       "applyButton_one": "Apply to 1 image",
       "applyButton_other": "Apply to {{count}} images",
       "bestImage": "Best Image",
-      "blurryImagesTab": "Blurry Images",
       "blurThreshold": "Blur Threshold",
       "blurThresholdDesc": "Images with a sharpness score below this value are flagged. Higher is stricter.",
+      "blurryImagesTab": "Blurry Images",
       "cancel": "Cancel",
       "close": "Close",
       "cullingFailed": "Culling Failed",
@@ -1429,7 +1484,9 @@
         "copy_files": "Copy selected file(s)",
         "cycle_zoom": "Cycle zoom (Fit, 2x Fit, 100%)",
         "delete_selected": "Delete selected file(s)",
+        "focus_search": "Focus search field",
         "open_image": "Open selected image",
+        "open_settings": "Open settings",
         "paste_adjustments": "Paste copied adjustments",
         "paste_files": "Paste file(s) to current folder",
         "preview_next": "Next image",
@@ -1554,7 +1611,7 @@
       "imageCacheDesc": "Maximum number of full-resolution images kept in RAM. Higher values make switching between recently edited images instant, but use significantly more memory.",
       "images": "Images",
       "linuxCompat": "Linux Compatibility Mode",
-      "linuxCompatDesc": "Enable workarounds for common GPU driver and display server issues. Disable this to enable full GPU acceleration.",
+      "linuxCompatDesc": "Force software compositing to work around GPU driver crashes. Nvidia GPUs already get a lighter, non-software-fallback workaround automatically, so only enable this if you still experience crashes on launch or when opening images.",
       "linuxCompatLabel": "Enable Compatibility Mode",
       "livePreviewQuality": "Live Preview Quality",
       "livePreviewQualityDesc": "Controls the resolution and compression of the image while dragging sliders. Lower quality significantly improves responsiveness.",
@@ -1626,8 +1683,8 @@
     "tagging": {
       "addCustomPlaceholder": "Add custom AI tags (comma separated)...",
       "addCustomTooltip": "Add AI tag",
-      "addShortcutsPlaceholder": "Add shortcuts (comma separated)...",
       "addShortcutTooltip": "Add Shortcut",
+      "addShortcutsPlaceholder": "Add shortcuts (comma separated)...",
       "aiTagging": "AI Tagging",
       "aiTaggingDesc": "Enables automatic image tagging using an AI (CLIP) model. This will download an additional model and impact performance while browsing folders. Tags are used for searching a folder.",
       "amount": "Amount",
@@ -1689,6 +1746,7 @@
         "expandFilmstrip": "Expand Filmstrip",
         "export": "Export",
         "pasteSettings": "Paste Settings",
+        "quickFilter": "Quick Filter",
         "rateStars_one": "Rate 1 star",
         "rateStars_other": "Rate {{count}} stars",
         "resetZoom": "Reset Zoom to Fit Window",
@@ -1733,9 +1791,13 @@
     },
     "lut": {
       "clearLut": "Clear LUT",
+      "empty": "No LUTs yet — import some",
       "filterLabel": "LUT Files",
+      "import": "Import profiles",
+      "importFailed": "Failed to import LUTs",
       "intensity": "Intensity",
       "label": "LUT",
+      "removeLut": "Remove LUT",
       "select": "Select",
       "selectLutFile": "Select a LUT file",
       "unsupportedFormat": "Unsupported file format(s) detected: .{{ext}}"

@@ -31,7 +31,7 @@ export interface ConfirmModalState {
 
 export interface CollageModalState {
   isOpen: boolean;
-  sourceImages: ImageFile[];
+  sourceImages: Array<Pick<ImageFile, 'path'>>;
 }
 
 export interface PanoramaModalState {
@@ -90,6 +90,7 @@ interface UIState {
   isLayoutReady: boolean;
   uiVisibility: UiVisibility;
   isLibraryExportPanelVisible: boolean;
+  isSettingsOpen: boolean;
 
   // Dimensions
   leftPanelWidth: number;
@@ -136,6 +137,8 @@ interface UIState {
   setRightPanel: (panel: Panel | null) => void;
   customEscapeHandler: (() => void) | null;
   setCustomEscapeHandler: (handler: (() => void) | null) => void;
+  searchFocusRequest: number;
+  requestSearchFocus: () => void;
 }
 
 export const useUIStore = create<UIState>((set, get) => ({
@@ -146,6 +149,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   isLayoutReady: false,
   uiVisibility: { folderTree: true, filmstrip: true },
   isLibraryExportPanelVisible: false,
+  isSettingsOpen: false,
 
   leftPanelWidth: 256,
   rightPanelWidth: 320,
@@ -230,4 +234,7 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   customEscapeHandler: null,
   setCustomEscapeHandler: (handler) => set({ customEscapeHandler: handler }),
+
+  searchFocusRequest: 0,
+  requestSearchFocus: () => set((state) => ({ searchFocusRequest: state.searchFocusRequest + 1 })),
 }));

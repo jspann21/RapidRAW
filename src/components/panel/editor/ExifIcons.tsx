@@ -1,4 +1,5 @@
 import React from 'react';
+import type { SVGProps } from 'react';
 
 type ExifIconProps = React.SVGProps<SVGSVGElement>;
 
@@ -12,6 +13,8 @@ const iconProps = {
   strokeLinecap: 'round' as const,
   strokeLinejoin: 'round' as const,
 };
+
+type ExifIconProps = SVGProps<SVGSVGElement>;
 
 export const IconAperture = (props: ExifIconProps) => (
   <svg {...iconProps} {...props}>
