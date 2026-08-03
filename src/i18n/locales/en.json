@@ -112,11 +112,18 @@
     },
     "effects": {
       "amount": "Amount",
+      "bokehCircular": "Circular",
+      "bokehHexagonal": "Hexagonal",
+      "bokehOctagonal": "Octagonal",
+      "bokehRing": "Bubble (Ring)",
+      "bokehShape": "Bokeh Shape",
       "creative": "Creative",
       "feather": "Feather",
       "glow": "Glow",
       "grain": "Grain",
       "halation": "Halation",
+      "lensBlur": "Lens Blur",
+      "lensDiffusion": "Diffusion",
       "lightFlares": "Light Flares",
       "lut": "LUT",
       "midpoint": "Midpoint",
@@ -352,6 +359,7 @@
       "dropzoneText": "Drop here to create a new edit",
       "editSettingsTitle": "Edit Settings",
       "editsTitle": "Edits",
+      "generatingDepthMap": "Calculating AI Depth Map...",
       "generativeEditTitle": "Generative Edit",
       "inpaintingTitle": "Inpainting",
       "manualCleanupTitle": "Manual Cleanup",
@@ -510,6 +518,9 @@
       "done": "Done",
       "exporting": "Exporting…",
       "savesTo": "External edit — saves to"
+    },
+    "layout": {
+      "split": "Split"
     },
     "masks": {
       "actions": {
@@ -710,6 +721,7 @@
       }
     },
     "toolbar": {
+      "switchToVariant": "Switch to {{label}}",
       "tooltips": {
         "aperture": "Aperture",
         "backToLibrary": "Back to Library",
@@ -781,6 +793,7 @@
     "status": {
       "cancelExport": "Cancel Export",
       "cancelled": "Export cancelled",
+      "cancelling": "Cancelling export…",
       "estimatedAverageSize": " ({{size}} avg)",
       "estimatedSize": "Estimated file size: ~{{size}}",
       "estimatedTotalSize": "Estimated total size: ~{{size}}",
@@ -881,7 +894,6 @@
       "raw": {
         "all": "All Types",
         "nonRawOnly": "Non-RAW Only",
-        "preferRaw": "Prefer RAW",
         "rawOnly": "RAW Only"
       }
     },
@@ -905,6 +917,7 @@
         "modified": "Date Modified",
         "name": "Alphabetically"
       },
+      "sourcesTitle": "Sources",
       "tooltips": {
         "clearSearch": "Clear search",
         "collapse": "Collapse",
@@ -945,6 +958,12 @@
         "filterByEdited": "Filter by Edit Status",
         "filterByFileType": "Filter by File Type",
         "filterByRating": "Filter by Rating",
+        "groupEditedFiles": "Include edited files in groups",
+        "groupIgnoreMetadata": "Ignore mismatched EXIF dates",
+        "groupOff": "Off",
+        "groupPreferJpeg": "Prefer JPEG",
+        "groupPreferRaw": "Prefer RAW",
+        "groupRawJpeg": "Group RAW + JPEG",
         "metadataAlways": "Always",
         "metadataHover": "On Hover",
         "metadataOff": "Off",
@@ -1482,6 +1501,7 @@
         "color_label_yellow": "Color label: Yellow",
         "copy_adjustments": "Copy selected adjustments",
         "copy_files": "Copy selected file(s)",
+        "copy_image_path": "Copy path of selected image(s)",
         "cycle_zoom": "Cycle zoom (Fit, 2x Fit, 100%)",
         "delete_selected": "Delete selected file(s)",
         "focus_search": "Focus search field",
@@ -1593,6 +1613,9 @@
         },
         "title": "Generative AI"
       },
+      "alwaysDecodeRaw": "Always Decode RAW",
+      "alwaysDecodeRawDesc": "Force full RAW decoding for thumbnails instead of using embedded JPEG previews. Enable this if your thumbnails look different in color or contrast compared to the opened image.",
+      "alwaysDecodeRawLabel": "Always decode RAW for thumbnails",
       "backend": "Processing Backend",
       "backendDesc": "Select the graphics API. 'Auto' is recommended. May fix crashes on some systems.",
       "backends": {

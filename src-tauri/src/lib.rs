@@ -25,6 +25,8 @@ mod hdr_deghosting;
 mod image_loader;
 mod image_processing;
 mod inpainting;
+mod launch_request;
+mod lens_blur;
 mod lens_correction;
 mod local_comfy;
 mod lut_processing;
@@ -46,7 +48,6 @@ use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 use std::io::Write;
 use std::panic;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
@@ -97,6 +98,7 @@ pub use adjustment_utils::*;
 pub use android_integration::*;
 pub use app_settings::*;
 pub use app_state::*;
+pub use launch_request::*;
 use tagging_utils::{candidates, hierarchy};
 
 #[cfg(target_os = "macos")]
@@ -109,7 +111,7 @@ extern "C" fn force_exit(_signal: libc::c_int) {
 #[cfg(target_os = "macos")]
 pub fn register_exit_handler() {
     unsafe {
-        libc::signal(libc::SIGABRT, force_exit as libc::sighandler_t);
+        libc::signal(libc::SIGABRT, force_exit as *const () as libc::sighandler_t);
     }
 }
 
@@ -619,23 +621,26 @@ fn start_analytics_worker(app_handle: tauri::AppHandle) {
                 job = latest;
             }
 
-            if let Ok(histogram_data) = image_processing::calculate_histogram_from_image(&job.image)
-            {
-                let _ = app_handle.emit(
-                    "histogram-update",
-                    serde_json::json!({ "path": job.path, "data": histogram_data }),
-                );
-            }
+            let histogram_data = image_processing::calculate_histogram_from_image(&job.image).ok();
 
-            if job.compute_waveform
-                && let Ok(waveform_data) = image_processing::calculate_waveform_from_image(
+            let waveform_data = if job.compute_waveform {
+                image_processing::calculate_waveform_from_image(
                     &job.image,
                     job.active_waveform_channel.as_deref(),
                 )
-            {
+                .ok()
+            } else {
+                None
+            };
+
+            if histogram_data.is_some() || waveform_data.is_some() {
                 let _ = app_handle.emit(
-                    "waveform-update",
-                    serde_json::json!({ "path": job.path, "data": waveform_data }),
+                    "analytics-update",
+                    serde_json::json!({
+                        "path": job.path,
+                        "histogram": histogram_data,
+                        "waveform": waveform_data,
+                    }),
                 );
             }
         }
@@ -755,9 +760,9 @@ fn generate_uncropped_preview(
         };
 
         let warped_image = apply_geometry_warp(patched_image, &adjustments_clone);
-
+        let blurred_image = crate::lens_blur::apply_lens_blur(warped_image, &adjustments_clone);
         let orientation_steps = adjustments_clone["orientationSteps"].as_u64().unwrap_or(0) as u8;
-        let coarse_rotated_image = apply_coarse_rotation(warped_image, orientation_steps);
+        let coarse_rotated_image = apply_coarse_rotation(blurred_image, orientation_steps);
 
         let flip_horizontal = adjustments_clone["flipHorizontal"]
             .as_bool()
@@ -862,6 +867,14 @@ fn generate_original_transformed_preview(
         .ok_or("No original image loaded")?;
 
     let mut adjustments_clone = js_adjustments.clone();
+
+    if let Some(obj) = adjustments_clone.as_object_mut() {
+        obj.insert(
+            "lensBlurEnabled".to_string(),
+            serde_json::Value::Bool(false),
+        );
+    }
+
     hydrate_adjustments(&state, &mut adjustments_clone);
 
     let mut image_for_preview = loaded_image.image.as_ref().clone();
@@ -950,6 +963,7 @@ async fn preview_geometry_transform(
                 obj.insert("orientationSteps".to_string(), serde_json::json!(0));
                 obj.insert("flipHorizontal".to_string(), serde_json::json!(false));
                 obj.insert("flipVertical".to_string(), serde_json::json!(false));
+                obj.insert("lensBlurEnabled".to_string(), serde_json::json!(false));
                 for key in GEOMETRY_KEYS {
                     match *key {
                         "transformScale"
@@ -1757,88 +1771,6 @@ fn frontend_log(level: String, message: String) -> Result<(), String> {
     Ok(())
 }
 
-fn handle_file_open(app_handle: &tauri::AppHandle, path: PathBuf) {
-    if let Some(path_str) = path.to_str()
-        && let Err(e) = app_handle.emit("open-with-file", path_str)
-    {
-        log::error!("Failed to emit open-with-file event: {}", e);
-    }
-}
-
-enum LaunchRequest {
-    None,
-    OpenFile(String),
-    EditSession(ExternalEditSession),
-}
-
-fn parse_launch_args(args: &[String]) -> LaunchRequest {
-    let mut edit: Option<String> = None;
-    let mut output: Option<String> = None;
-    let mut format: Option<String> = None;
-    let mut quality: Option<u8> = None;
-    let mut plain: Option<String> = None;
-
-    let mut iter = args.iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--edit" => edit = iter.next().cloned(),
-            "--output" => output = iter.next().cloned(),
-            "--format" => format = iter.next().cloned(),
-            "--quality" => quality = iter.next().and_then(|q| q.parse().ok()),
-            s if !s.starts_with('-') && plain.is_none() => plain = Some(s.to_string()),
-            _ => {}
-        }
-    }
-
-    match (edit, output) {
-        (Some(source), Some(output)) => {
-            let format = format.unwrap_or_else(|| {
-                std::path::Path::new(&output)
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .map(|e| e.to_lowercase())
-                    .unwrap_or_else(|| "jpg".to_string())
-            });
-            let format = match format.as_str() {
-                "tif" => "tiff".to_string(),
-                _ => format,
-            };
-            LaunchRequest::EditSession(ExternalEditSession {
-                source,
-                output,
-                format,
-                jpeg_quality: quality.unwrap_or(90),
-            })
-        }
-        (Some(source), None) => LaunchRequest::OpenFile(source),
-        _ => match plain {
-            Some(path) => LaunchRequest::OpenFile(path),
-            None => LaunchRequest::None,
-        },
-    }
-}
-
-fn emit_launch_request(app_handle: &tauri::AppHandle, request: LaunchRequest) {
-    match request {
-        LaunchRequest::EditSession(session) => {
-            if let Err(e) = app_handle.emit("external-edit-session", &session) {
-                log::error!("Failed to emit external-edit-session event: {}", e);
-            }
-        }
-        LaunchRequest::OpenFile(path) => {
-            handle_file_open(app_handle, PathBuf::from(path));
-        }
-        LaunchRequest::None => {}
-    }
-}
-
-#[derive(serde::Serialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct LaunchPayload {
-    open_with_file: Option<String>,
-    edit_session: Option<ExternalEditSession>,
-}
-
 #[derive(Clone, Copy, Debug)]
 struct MonitorBounds {
     x: i32,
@@ -1915,9 +1847,14 @@ fn frontend_ready(
 
     #[cfg(not(target_os = "android"))]
     {
+        #[cfg(any(windows, target_os = "linux"))]
         let mut should_maximize = false;
+        #[cfg(any(windows, target_os = "linux"))]
         let mut should_fullscreen = false;
+        #[cfg(not(any(windows, target_os = "linux")))]
+        let _ = (&app_handle, is_first_run);
 
+        #[cfg(any(windows, target_os = "linux"))]
         if is_first_run && let Ok(config_dir) = app_handle.path().app_config_dir() {
             let path = config_dir.join("window_state.json");
 
@@ -1966,6 +1903,7 @@ fn frontend_ready(
         if let Err(e) = window.set_focus() {
             log::error!("Failed to focus window: {}", e);
         }
+        #[cfg(any(windows, target_os = "linux"))]
         if is_first_run {
             if should_maximize {
                 let _ = window.maximize();
@@ -2001,25 +1939,31 @@ pub fn run() {
 
     let mut builder = tauri::Builder::default();
 
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let launch_req = parse_launch_args(&args);
+    let is_headless = matches!(launch_req, LaunchRequest::HeadlessExport(_));
+
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            log::info!(
-                "New instance launched with args: {:?}. Focusing main window.",
-                argv
-            );
-            if let Some(window) = app.get_webview_window("main") {
-                if let Err(e) = window.unminimize() {
-                    log::error!("Failed to unminimize window: {}", e);
+        if !is_headless {
+            builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+                log::info!(
+                    "New instance launched with args: {:?}. Focusing main window.",
+                    argv
+                );
+                if let Some(window) = app.get_webview_window("main") {
+                    if let Err(e) = window.unminimize() {
+                        log::error!("Failed to unminimize window: {}", e);
+                    }
+                    if let Err(e) = window.set_focus() {
+                        log::error!("Failed to set focus on window: {}", e);
+                    }
                 }
-                if let Err(e) = window.set_focus() {
-                    log::error!("Failed to set focus on window: {}", e);
-                }
-            }
 
-            let forwarded_args = argv.get(1..).unwrap_or(&[]);
-            emit_launch_request(app, parse_launch_args(forwarded_args));
-        }));
+                let forwarded_args = argv.get(1..).unwrap_or(&[]);
+                emit_launch_request(app, parse_launch_args(forwarded_args));
+            }));
+        }
     }
 
     builder
@@ -2040,21 +1984,21 @@ pub fn run() {
                         display.render(&ctx.device, &ctx.queue);
                     }
         })
-        .setup(|app| {
-            #[cfg(any(windows, target_os = "linux"))]
+        .setup(move |app| {
+            let state = app.state::<AppState>();
+
+            #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
             {
-                let args: Vec<String> = std::env::args().skip(1).collect();
-                let state = app.state::<AppState>();
-                match parse_launch_args(&args) {
+                match launch_req.clone() {
                     LaunchRequest::EditSession(session) => {
                         log::info!("Initial launch with external edit session for: {}", &session.source);
                         *state.pending_edit_session.lock().unwrap() = Some(session);
                     }
                     LaunchRequest::OpenFile(path) => {
-                        log::info!("Windows/Linux initial open: Storing path {} for later.", &path);
+                        log::info!("Initial open: Storing path {} for later.", &path);
                         *state.initial_file_path.lock().unwrap() = Some(path);
                     }
-                    LaunchRequest::None => {}
+                    _ => {}
                 }
             }
 
@@ -2093,8 +2037,10 @@ pub fn run() {
             }
 
             let lens_db = lens_correction::load_lensfun_db(&app_handle);
-            let state = app.state::<AppState>();
-            *state.lens_db.lock().unwrap() = Some(Arc::new(lens_db));
+            {
+                let state = app.state::<AppState>();
+                *state.lens_db.lock().unwrap() = Some(Arc::new(lens_db));
+            }
 
             unsafe {
                 if let Some(backend) = &settings.processing_backend
@@ -2161,6 +2107,24 @@ pub fn run() {
                 } else if is_nvidia_gpu() {
                     log::info!("Applied Nvidia explicit-sync workaround (hardware compositing kept).");
                 }
+            }
+
+            if let LaunchRequest::HeadlessExport(session) = launch_req {
+                let app_handle_clone = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    match crate::export_processing::run_headless_export(session, app_handle_clone.clone()).await {
+                        Ok(_) => {
+                            println!("Headless export completed successfully.");
+                            app_handle_clone.exit(0);
+                        }
+                        Err(e) => {
+                            eprintln!("Headless export failed: {}", e);
+                            app_handle_clone.exit(1);
+                        }
+                    }
+                });
+
+                return Ok(());
             }
 
             start_preview_worker(app_handle.clone());
@@ -2340,7 +2304,7 @@ pub fn run() {
             ai_state: Mutex::new(None),
             local_comfy_process: Mutex::new(None),
             ai_init_lock: TokioMutex::new(()),
-            export_task_handle: Mutex::new(None),
+            export_task_token: Arc::new(Mutex::new(None)),
             hdr_result: Arc::new(Mutex::new(None)),
             panorama_result: Arc::new(Mutex::new(None)),
             denoise_result: Arc::new(Mutex::new(None)),
@@ -2403,6 +2367,7 @@ pub fn run() {
             ai_commands::generate_ai_depth_mask,
             ai_commands::check_ai_connector_status,
             ai_commands::test_ai_connector_connection,
+            ai_commands::generate_full_image_depth_map,
             inpainting::invoke_generative_replace_with_mask_def,
             inpainting::generate_manual_cleanup_patch,
             denoising::apply_denoising,
@@ -2488,14 +2453,13 @@ pub fn run() {
             match event {
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::Opened { urls } => {
-                    if let Some(url) = urls.first() {
-                        if let Ok(path) = url.to_file_path() {
-                            if let Some(path_str) = path.to_str() {
-                                let state = app_handle.state::<AppState>();
-                                *state.initial_file_path.lock().unwrap() = Some(path_str.to_string());
-                                log::info!("macOS initial open: Stored path {} for later.", path_str);
-                            }
-                        }
+                    if let Some(url) = urls.first()
+                        && let Ok(path) = url.to_file_path()
+                        && let Some(path_str) = path.to_str()
+                    {
+                        let state = app_handle.state::<AppState>();
+                        *state.initial_file_path.lock().unwrap() = Some(path_str.to_string());
+                        log::info!("macOS initial open: Stored path {} for later.", path_str);
                     }
                 }
                 tauri::RunEvent::ExitRequested { api, .. } => {

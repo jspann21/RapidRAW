@@ -112,11 +112,18 @@
     },
     "effects": {
       "amount": "Величина",
+      "bokehCircular": "Круглая",
+      "bokehHexagonal": "Шестиугольная",
+      "bokehOctagonal": "Восьмиугольная",
+      "bokehRing": "Пузырь (Кольцо)",
+      "bokehShape": "Форма боке",
       "creative": "Творчество",
       "feather": "Растушевка",
       "glow": "Свечение",
       "grain": "Зернистость",
       "halation": "Ореол",
+      "lensBlur": "Размытие объектива",
+      "lensDiffusion": "Диффузия",
       "lightFlares": "Блики",
       "lut": "LUT",
       "midpoint": "Средняя точка",
@@ -384,6 +391,7 @@
       "dropzoneText": "Перетащите сюда, чтобы создать новую правку",
       "editSettingsTitle": "Настройки редактирования",
       "editsTitle": "Правки",
+      "generatingDepthMap": "Расчет карты глубины ИИ...",
       "generativeEditTitle": "Генеративное редактирование",
       "inpaintingTitle": "Восстановление",
       "manualCleanupTitle": "Ручная очистка",
@@ -550,6 +558,9 @@
       "done": "Готово",
       "exporting": "Экспорт…",
       "savesTo": "Внешнее редактирование — сохраняется в"
+    },
+    "layout": {
+      "split": "Разделить"
     },
     "masks": {
       "actions": {
@@ -751,6 +762,7 @@
       }
     },
     "toolbar": {
+      "switchToVariant": "Switch to {{label}}",
       "tooltips": {
         "aperture": "Диафрагма",
         "backToLibrary": "Назад в библиотеку",
@@ -824,6 +836,7 @@
     "status": {
       "cancelExport": "Отменить экспорт",
       "cancelled": "Экспорт отменен",
+      "cancelling": "Отмена экспорта…",
       "estimatedAverageSize": " (~{{size}} в среднем)",
       "estimatedSize": "Оценочный размер файла: ~{{size}}",
       "estimatedTotalSize": "Оценочный общий размер: ~{{size}}",
@@ -926,7 +939,6 @@
       "raw": {
         "all": "Все типы файлов",
         "nonRawOnly": "Только не-RAW",
-        "preferRaw": "Приоритет RAW",
         "rawOnly": "Только RAW"
       }
     },
@@ -950,6 +962,7 @@
         "modified": "Дата изменения",
         "name": "По алфавиту"
       },
+      "sourcesTitle": "Источники",
       "tooltips": {
         "clearSearch": "Очистить поиск",
         "collapse": "Свернуть",
@@ -990,6 +1003,12 @@
         "filterByEdited": "Фильтр по редактированию",
         "filterByFileType": "Фильтр по формату",
         "filterByRating": "Фильтр по рейтингу",
+        "groupEditedFiles": "Include edited files in groups",
+        "groupIgnoreMetadata": "Ignore mismatched EXIF dates",
+        "groupOff": "Off",
+        "groupPreferJpeg": "Prefer JPEG",
+        "groupPreferRaw": "Prefer RAW",
+        "groupRawJpeg": "Group RAW + JPEG",
         "metadataAlways": "Всегда",
         "metadataHover": "При наведении",
         "metadataOff": "Выкл",
@@ -1547,6 +1566,7 @@
         "color_label_yellow": "Цветовая метка: Желтый",
         "copy_adjustments": "Копировать выбранные настройки",
         "copy_files": "Копировать выбранные файлы",
+        "copy_image_path": "Копировать путь к выбранным изображениям",
         "cycle_zoom": "Режимы масштаба (По экрану, 2x, 100%)",
         "delete_selected": "Удалить выбранные файлы",
         "focus_search": "Перейти к полю поиска",
@@ -1658,6 +1678,9 @@
         },
         "title": "Генеративный ИИ"
       },
+      "alwaysDecodeRaw": "Всегда декодировать RAW",
+      "alwaysDecodeRawDesc": "Принудительно использовать полное декодирование RAW для миниатюр вместо встроенных превью JPEG. Включите эту опцию, если цвета или контрастность миниатюр отличаются от открытого изображения.",
+      "alwaysDecodeRawLabel": "Всегда декодировать RAW для миниатюр",
       "backend": "Графический бэкенд",
       "backendDesc": "Выберите графический API. Рекомендуется значение 'Авто'. Изменение параметра может устранить сбои рендеринга на некоторых конфигурациях оборудования.",
       "backends": {

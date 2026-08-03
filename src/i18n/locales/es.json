@@ -112,11 +112,18 @@
     },
     "effects": {
       "amount": "Cantidad",
+      "bokehCircular": "Circular",
+      "bokehHexagonal": "Hexagonal",
+      "bokehOctagonal": "Octogonal",
+      "bokehRing": "Burbuja (Anillo)",
+      "bokehShape": "Forma del bokeh",
       "creative": "Creativo",
       "feather": "Desvanecimiento",
       "glow": "Resplandor",
       "grain": "Grano",
       "halation": "Halación",
+      "lensBlur": "Desenfoque de lente",
+      "lensDiffusion": "Difusión",
       "lightFlares": "Destellos de luz",
       "lut": "LUT",
       "midpoint": "Punto medio",
@@ -368,6 +375,7 @@
       "dropzoneText": "Suelta aquí para crear una nueva edición",
       "editSettingsTitle": "Ajustes de edición",
       "editsTitle": "Ediciones",
+      "generatingDepthMap": "Calculando mapa de profundidad IA...",
       "generativeEditTitle": "Edición generativa",
       "inpaintingTitle": "Inpainting",
       "manualCleanupTitle": "Limpieza manual",
@@ -530,6 +538,9 @@
       "done": "Listo",
       "exporting": "Exportando…",
       "savesTo": "Edición externa: se guarda en"
+    },
+    "layout": {
+      "split": "Dividir"
     },
     "masks": {
       "actions": {
@@ -730,6 +741,7 @@
       }
     },
     "toolbar": {
+      "switchToVariant": "Switch to {{label}}",
       "tooltips": {
         "aperture": "Apertura",
         "backToLibrary": "Volver a la Biblioteca",
@@ -802,6 +814,7 @@
     "status": {
       "cancelExport": "Cancelar exportación",
       "cancelled": "Exportación cancelada",
+      "cancelling": "Cancelando exportación…",
       "estimatedAverageSize": " ({{size}} prom)",
       "estimatedSize": "Tamaño de archivo estimado: ~{{size}}",
       "estimatedTotalSize": "Tamaño total estimado: ~{{size}}",
@@ -903,7 +916,6 @@
       "raw": {
         "all": "Todos los tipos",
         "nonRawOnly": "Solo no RAW",
-        "preferRaw": "Preferir RAW",
         "rawOnly": "Solo RAW"
       }
     },
@@ -927,6 +939,7 @@
         "modified": "Fecha de modificación",
         "name": "Alfabéticamente"
       },
+      "sourcesTitle": "Fuentes",
       "tooltips": {
         "clearSearch": "Borrar búsqueda",
         "collapse": "Contraer",
@@ -967,6 +980,12 @@
         "filterByEdited": "Filtrar por estado de edición",
         "filterByFileType": "Filtrar por tipo de archivo",
         "filterByRating": "Filtrar por puntuación",
+        "groupEditedFiles": "Include edited files in groups",
+        "groupIgnoreMetadata": "Ignore mismatched EXIF dates",
+        "groupOff": "Off",
+        "groupPreferJpeg": "Prefer JPEG",
+        "groupPreferRaw": "Prefer RAW",
+        "groupRawJpeg": "Group RAW + JPEG",
         "metadataAlways": "Siempre",
         "metadataHover": "Al pasar el ratón",
         "metadataOff": "Desactivado",
@@ -1514,6 +1533,7 @@
         "color_label_yellow": "Etiqueta de color: Amarillo",
         "copy_adjustments": "Copiar ajustes seleccionados",
         "copy_files": "Copiar archivo(s) seleccionado(s)",
+        "copy_image_path": "Copiar la ruta de la(s) imagen(es) seleccionada(s)",
         "cycle_zoom": "Alternar zoom (Ajustar, 2x Ajustar, 100%)",
         "delete_selected": "Eliminar archivo(s) seleccionado(s)",
         "focus_search": "Enfocar el campo de búsqueda",
@@ -1625,6 +1645,9 @@
         },
         "title": "IA Generativa"
       },
+      "alwaysDecodeRaw": "Decodificar RAW siempre",
+      "alwaysDecodeRawDesc": "Fuerza la decodificación RAW completa para las miniaturas en lugar de usar vistas previas JPEG incrustadas. Activa esta opción si las miniaturas tienen colores o contrastes diferentes a la imagen abierta.",
+      "alwaysDecodeRawLabel": "Decodificar RAW siempre para miniaturas",
       "backend": "Backend de procesamiento",
       "backendDesc": "Selecciona la API de gráficos. Se recomienda 'Auto'. Puede solucionar bloqueos en algunos sistemas.",
       "backends": {

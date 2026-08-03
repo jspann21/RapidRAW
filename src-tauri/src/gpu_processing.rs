@@ -278,7 +278,7 @@ pub fn get_or_init_gpu_context(
             width: size.width.max(1),
             height: size.height.max(1),
             format: swapchain_format,
-            color_space: wgpu::SurfaceColorSpace::Auto,
+            color_space: wgpu::SurfaceColorSpace::Srgb,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode,
@@ -951,7 +951,19 @@ impl GpuProcessor {
         let dummy_lut_view = dummy_lut_texture.create_view(&Default::default());
         let dummy_lut_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
-        let max_tile_size = wgpu::Extent3d {
+        const TILE_SIZE: u32 = 2048;
+        const TILE_OVERLAP: u32 = 128;
+
+        let clamped_tile_width = max_width.min(TILE_SIZE + TILE_OVERLAP * 2);
+        let clamped_tile_height = max_height.min(TILE_SIZE + TILE_OVERLAP * 2);
+
+        let clamped_tile_size = wgpu::Extent3d {
+            width: clamped_tile_width,
+            height: clamped_tile_height,
+            depth_or_array_layers: 1,
+        };
+
+        let full_image_size = wgpu::Extent3d {
             width: max_width,
             height: max_height,
             depth_or_array_layers: 1,
@@ -959,7 +971,7 @@ impl GpuProcessor {
 
         let reusable_texture_desc = wgpu::TextureDescriptor {
             label: None,
-            size: max_tile_size,
+            size: clamped_tile_size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -1000,7 +1012,7 @@ impl GpuProcessor {
 
         let tile_output_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Tile Output Texture"),
-            size: max_tile_size,
+            size: clamped_tile_size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -1014,7 +1026,7 @@ impl GpuProcessor {
 
         let working_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Working Output Texture"),
-            size: max_tile_size,
+            size: full_image_size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -1029,7 +1041,7 @@ impl GpuProcessor {
 
         let output_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Full Output Texture"),
-            size: max_tile_size,
+            size: full_image_size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -1719,8 +1731,6 @@ fn process_and_get_dynamic_image_inner(
         return Ok(base_image.clone());
     }
 
-    let mut reallocated = false;
-
     let mut processor_lock = state.gpu_processor.lock().unwrap();
     let mut needs_new_processor = false;
     let new_width = (width + 255) & !255;
@@ -1741,12 +1751,6 @@ fn process_and_get_dynamic_image_inner(
             new_height
         );
 
-        if let Ok(mut display_lock) = context.display.lock()
-            && let Some(display) = display_lock.as_mut()
-        {
-            display.current_bind_group = None;
-        }
-
         let old_processor = processor_lock.take();
         drop(old_processor);
 
@@ -1762,44 +1766,10 @@ fn process_and_get_dynamic_image_inner(
             width: new_width,
             height: new_height,
         });
-        reallocated = true;
     }
 
     let processor_state = processor_lock.as_ref().unwrap();
     let processor = &processor_state.processor;
-
-    if reallocated
-        && let Ok(mut display_lock) = context.display.lock()
-        && let Some(display) = display_lock.as_mut()
-    {
-        display.latest_transform.texture_size =
-            [processor_state.width as f32, processor_state.height as f32];
-        queue.write_buffer(
-            &display.transform_buffer,
-            0,
-            bytemuck::bytes_of(&display.latest_transform),
-        );
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &display.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: display.transform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&processor.output_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&display.sampler),
-                },
-            ],
-            label: Some("Migrated Display Bind Group"),
-        });
-        display.current_bind_group = Some(bind_group);
-    }
 
     let mut cache_lock = state.gpu_image_cache.lock().unwrap();
     let mut needs_new_cache = false;

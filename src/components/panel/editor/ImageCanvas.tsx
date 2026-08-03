@@ -1646,7 +1646,8 @@ const ImageCanvas = memo(
 
     const handleWbClick = useCallback(
       (e: any) => {
-        if (!isWbPickerActive || !finalPreviewUrl || !onWbPicked) return;
+        const sampleUrl = selectedImage?.thumbnailUrl || finalPreviewUrl;
+        if (!isWbPickerActive || !sampleUrl || !onWbPicked) return;
 
         const stage = e.target.getStage();
         const pointerPos = getCanvasPointer(stage);
@@ -1662,7 +1663,7 @@ const ImageCanvas = memo(
 
         const img = new Image();
         img.crossOrigin = 'Anonymous';
-        img.src = finalPreviewUrl;
+        img.src = sampleUrl;
 
         img.onload = () => {
           const radius = 5;
@@ -1724,14 +1725,22 @@ const ImageCanvas = memo(
 
           setAdjustments((prev: Adjustments) => ({
             ...prev,
-            temperature: Math.max(-100, Math.min(100, (prev.temperature || 0) + deltaTemp)),
-            tint: Math.max(-100, Math.min(100, (prev.tint || 0) + deltaTint)),
+            temperature: Math.max(-100, Math.min(100, deltaTemp)),
+            tint: Math.max(-100, Math.min(100, deltaTint)),
           }));
 
           onWbPicked();
         };
       },
-      [isWbPickerActive, finalPreviewUrl, imageRenderSize, onWbPicked, setAdjustments, getCanvasPointer],
+      [
+        isWbPickerActive,
+        selectedImage?.thumbnailUrl,
+        finalPreviewUrl,
+        imageRenderSize,
+        onWbPicked,
+        setAdjustments,
+        getCanvasPointer,
+      ],
     );
 
     const handleStart = useCallback(
@@ -2672,7 +2681,6 @@ const ImageCanvas = memo(
                         overflow: 'visible',
                       }
                 }
-                preserveAspectRatio={imageRenderSize.width > 0 && imageRenderSize.height > 0 ? 'none' : 'xMidYMid meet'}
               >
                 {displayState.base && !isWgpuActive && (
                   <image

@@ -6,6 +6,7 @@ import { useUIStore } from '../store/useUIStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { useProcessStore } from '../store/useProcessStore';
+import { GOOGLE_PHOTOS_FOLDER_PATH } from '../store/useGooglePhotosStore';
 import { THEMES, DEFAULT_THEME_ID, ThemeProps } from '../utils/themes';
 import { COPYABLE_ADJUSTMENT_KEYS } from '../utils/adjustments';
 import {
@@ -91,6 +92,18 @@ export const useAppInitialization = ({
     })),
   );
 
+  const workspaceProps = useUIStore(
+    useShallow((state) => ({
+      leftPanelWidth: state.leftPanelWidth,
+      rightPanelWidth: state.rightPanelWidth,
+      leftTopHeight: state.leftTopHeight,
+      rightTopHeight: state.rightTopHeight,
+      panelLayout: state.panelLayout,
+      activePanels: state.activePanels,
+      panelSwitcherPlacement: state.panelSwitcherPlacement,
+    })),
+  );
+
   const {
     sortCriteria,
     filterCriteria,
@@ -152,6 +165,15 @@ export const useAppInitialization = ({
           handleSettingsChange(settings);
         }
 
+        // legacy
+        const savedRawStatus = settings?.filterCriteria?.rawStatus as string | undefined;
+        if (savedRawStatus === 'groupVariants' || savedRawStatus === 'rawOverNonRaw') {
+          const legacyPref = settings?.groupPreferredType === 'jpeg' ? 'jpeg' : 'raw';
+          settings.grouping = legacyPref;
+          settings.filterCriteria = { ...settings.filterCriteria, rawStatus: 'all' };
+          handleSettingsChange(settings);
+        }
+
         setAppSettings(settings);
         i18n.changeLanguage(settings.language);
 
@@ -169,8 +191,21 @@ export const useAppInitialization = ({
 
         if (settings?.theme) setTheme(settings.theme);
 
-        if (settings?.uiVisibility)
+        if (settings?.uiVisibility) {
           setUI((state) => ({ uiVisibility: { ...state.uiVisibility, ...settings.uiVisibility } }));
+        }
+
+        if (settings?.workspace) {
+          setUI({
+            leftPanelWidth: settings.workspace.leftPanelWidth,
+            rightPanelWidth: settings.workspace.rightPanelWidth,
+            leftTopHeight: settings.workspace.leftTopHeight,
+            rightTopHeight: settings.workspace.rightTopHeight,
+            panelLayout: settings.workspace.panelLayout,
+            activePanels: settings.workspace.activePanels,
+            panelSwitcherPlacement: settings.workspace.panelSwitcherPlacement,
+          });
+        }
 
         if (settings?.isWaveformVisible !== undefined) setEditor({ isWaveformVisible: settings.isWaveformVisible });
         if (settings?.activeWaveformChannel) setEditor({ activeWaveformChannel: settings.activeWaveformChannel });
@@ -263,6 +298,21 @@ export const useAppInitialization = ({
     setThumbnailSize,
     setThumbnailAspectRatio,
   ]);
+
+  useEffect(() => {
+    if (isInitialMount.current || !appSettings) return;
+
+    const currentWorkspaceStr = JSON.stringify(appSettings.workspace || {});
+    const newWorkspaceStr = JSON.stringify(workspaceProps);
+
+    if (currentWorkspaceStr !== newWorkspaceStr) {
+      const timeoutId = setTimeout(() => {
+        handleSettingsChange({ ...appSettings, workspace: workspaceProps });
+      }, 500);
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [workspaceProps, appSettings, handleSettingsChange]);
 
   useEffect(() => {
     if (isInitialMount.current || !appSettings) return;

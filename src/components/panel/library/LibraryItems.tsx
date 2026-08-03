@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Image as ImageIcon, Folder, FolderOpen, Star as StarIcon, SlidersHorizontal, CloudOff } from 'lucide-react';
+import {
+  Image as ImageIcon,
+  Folder,
+  FolderOpen,
+  Star as StarIcon,
+  SlidersHorizontal,
+  Cloud,
+  CloudOff,
+  Layers,
+} from 'lucide-react';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { COLOR_LABELS, Color } from '../../../utils/adjustments';
@@ -34,6 +43,7 @@ const ThumbnailComponent = ({
   isEdited,
   exif,
   isCloudPlaceholder,
+  groupBadgeLabel,
 }: any) => {
   const { t } = useTranslation();
   const data = useProcessStore((s) => s.thumbnails[path]);
@@ -148,7 +158,8 @@ const ThumbnailComponent = ({
   const hasEditIcon = !!showEditIcon;
   const hasColorLabel = !!colorLabel;
   const hasRating = rating > 0;
-  const hasAnyOverlay = hasEditIcon || hasColorLabel || hasRating;
+  const hasGroupBadge = !!groupBadgeLabel;
+  const hasAnyOverlay = hasEditIcon || hasColorLabel || hasRating || hasGroupBadge;
 
   return (
     <div
@@ -264,6 +275,17 @@ const ThumbnailComponent = ({
               {rating}
             </Text>
             <StarIcon size={12} className="text-white fill-white" />
+          </div>
+
+          <div
+            className={clsx(
+              'flex items-center shrink-0 transition-all duration-200 ease-out overflow-hidden',
+              hasGroupBadge ? 'max-w-4 opacity-100 scale-100' : 'max-w-0 opacity-0 scale-75 pointer-events-none',
+              hasGroupBadge && (hasEditIcon || hasColorLabel || hasRating) ? 'ml-1.5' : 'ml-0',
+            )}
+            data-tooltip={groupBadgeLabel}
+          >
+            <Layers size={12} className="text-white" />
           </div>
         </div>
       </div>
@@ -759,6 +781,7 @@ const RowComponent = ({
   columnWidths,
   queueThumbnailRequest,
   onToggleRecursiveFolder,
+  groupBadgeInfo,
 }: any) => {
   const { t } = useTranslation();
   const row = rows[index];
@@ -890,8 +913,8 @@ const RowComponent = ({
                 modified={imageFile.modified}
                 columnWidths={columnWidths}
                 isCloudPlaceholder={imageFile.is_cloud_placeholder}
-                isPrevSelected={isPrevSelected} // <-- Added
-                isNextSelected={isNextSelected} // <-- Added
+                isPrevSelected={isPrevSelected}
+                isNextSelected={isNextSelected}
               />
             ) : (
               <Thumbnail
@@ -908,6 +931,7 @@ const RowComponent = ({
                 isEdited={imageFile.is_edited}
                 aspectRatio={thumbnailAspectRatio}
                 isCloudPlaceholder={imageFile.is_cloud_placeholder}
+                groupBadgeLabel={imageFile.group_id && groupBadgeInfo?.get(imageFile.group_id)?.label}
               />
             )}
           </div>

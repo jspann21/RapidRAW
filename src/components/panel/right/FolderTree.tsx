@@ -2,7 +2,6 @@ import {
   Cloud,
   Folder,
   FolderOpen,
-  ChevronLeft,
   ChevronRight,
   ChevronUp,
   ChevronDown,
@@ -30,11 +29,13 @@ import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import Text from '../ui/Text';
-import { TEXT_COLOR_KEYS, TextColors, TextVariants, TextWeights } from '../../types/typography';
-import { useLibraryStore } from '../../store/useLibraryStore';
-import { useSettingsStore } from '../../store/useSettingsStore';
-import { AlbumItem, AlbumGroup, Album, Invokes, FolderTreeSort, SortDirection } from '../ui/AppProperties';
+import Text from '../../ui/Text';
+import { TEXT_COLOR_KEYS, TextColors, TextVariants, TextWeights } from '../../../types/typography';
+import { useShallow } from 'zustand/react/shallow';
+import { useLibraryStore } from '../../../store/useLibraryStore';
+import { useSettingsStore } from '../../../store/useSettingsStore';
+import { AlbumItem, AlbumGroup, Album, Invokes, FolderTreeSort, SortDirection } from '../../ui/AppProperties';
+import { getFolderDisplayName, isSameFolderPath, normalizeFolderPath } from '../../../utils/folderPaths';
 
 export interface FolderTree {
   children: FolderTree[];
@@ -49,7 +50,6 @@ export interface FolderTree {
 
 interface FolderTreeProps {
   isResizing: boolean;
-  isVisible: boolean;
   onContextMenu(event: any, path: string | null, isRoot?: boolean, isRecent?: boolean): void;
   onAlbumContextMenu(event: any, item: AlbumItem | null): void;
   onFolderSelect(folder: string, options?: { asSessionRoot?: boolean }): void;
@@ -58,7 +58,6 @@ interface FolderTreeProps {
   onSelectAlbum(albumId: string, albumName: string, images: string[]): void;
   onToggleFolder(folder: string): void;
   onOpenFolder(): void;
-  setIsVisible(visible: boolean): void;
   style: any;
   isInstantTransition: boolean;
 }
@@ -640,9 +639,49 @@ function TreeNode({
   );
 }
 
+function RecentFolderRow({
+  path,
+  isSelected,
+  onContextMenu,
+  onFolderSelect,
+  onRemove,
+}: {
+  path: string;
+  isSelected: boolean;
+  onContextMenu(event: any, path: string | null, isRoot?: boolean, isRecent?: boolean): void;
+  onFolderSelect(folder: string, options?: { asSessionRoot?: boolean }): void;
+  onRemove(folder: string): void;
+}) {
+  return (
+    <div
+      className={clsx(
+        'group flex items-center gap-2 rounded-md px-2 py-1.5 cursor-pointer',
+        isSelected ? 'bg-card-active text-text-primary' : 'text-text-secondary hover:bg-surface',
+      )}
+      onClick={() => onFolderSelect(path, { asSessionRoot: true })}
+      onContextMenu={(event) => onContextMenu(event, path, false, true)}
+      data-folder-path={path}
+    >
+      <History size={15} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate" data-tooltip={path}>
+        {getFolderDisplayName(path)}
+      </span>
+      <button
+        className="p-1 rounded-sm opacity-0 group-hover:opacity-100 hover:bg-card-active"
+        onClick={(event) => {
+          event.stopPropagation();
+          onRemove(path);
+        }}
+        data-tooltip="Remove from recent folders"
+      >
+        <X size={13} />
+      </button>
+    </div>
+  );
+}
+
 export default function FolderTree({
   isResizing,
-  isVisible,
   onContextMenu,
   onAlbumContextMenu,
   onFolderSelect,
@@ -651,12 +690,16 @@ export default function FolderTree({
   onSelectAlbum,
   onToggleFolder,
   onOpenFolder,
-  setIsVisible,
   style,
   isInstantTransition,
 }: FolderTreeProps) {
   const { t } = useTranslation();
-  const { appSettings, handleSettingsChange } = useSettingsStore();
+  const { appSettings, handleSettingsChange } = useSettingsStore(
+    useShallow((state) => ({
+      appSettings: state.appSettings,
+      handleSettingsChange: state.handleSettingsChange,
+    })),
+  );
   const {
     folderTrees,
     currentFolderPath: selectedPath,
@@ -669,7 +712,21 @@ export default function FolderTree({
     albumTree,
     activeAlbumId,
     expandedAlbumGroups,
-  } = useLibraryStore();
+  } = useLibraryStore(
+    useShallow((state) => ({
+      folderTrees: state.folderTrees,
+      rootPaths: state.rootPaths,
+      pinnedFolderTrees: state.pinnedFolderTrees,
+      draggedImagePaths: state.draggedImagePaths,
+      dragTargetFolderPath: state.dragTargetFolderPath,
+      currentFolderPath: state.currentFolderPath,
+      expandedFolders: state.expandedFolders,
+      isTreeLoading: state.isTreeLoading,
+      albumTree: state.albumTree,
+      activeAlbumId: state.activeAlbumId,
+      expandedAlbumGroups: state.expandedAlbumGroups,
+    })),
+  );
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isHovering, setIsHovering] = useState(false);
@@ -678,6 +735,7 @@ export default function FolderTree({
   const openSections = appSettings?.openTreeSections ?? ['current'];
   const showImageCounts = appSettings?.enableFolderImageCounts ?? false;
   const folderIcons = appSettings?.folderIcons || {};
+  const showRecentFolders = appSettings?.showRecentFolders ?? true;
   const folderTreeSort: FolderTreeSort = appSettings?.folderTreeSort || { key: 'name', order: SortDirection.Ascending };
   const showHeaderButtons = isHovering || isSortMenuOpen;
 
@@ -757,7 +815,9 @@ export default function FolderTree({
   const filteredAlbumTree = useMemo(() => {
     let base = albumTree;
     if (isSearching) {
-      base = base.map((item: any) => filterAlbumTree(item, trimmedQuery)).filter((t: any) => t !== null);
+      base = base
+        .map((item: any) => filterAlbumTree(item, trimmedQuery))
+        .filter((item): item is AlbumItem => item !== null);
     }
     return base;
   }, [albumTree, trimmedQuery, isSearching]);
@@ -823,7 +883,7 @@ export default function FolderTree({
   return (
     <div
       className={clsx(
-        'relative bg-bg-secondary rounded-lg shrink-0',
+        'relative bg-bg-secondary rounded-lg shrink-0 flex flex-col h-full',
         !isResizing && 'transition-[width] duration-300 ease-in-out',
       )}
       style={style}
@@ -831,87 +891,60 @@ export default function FolderTree({
       onMouseLeave={() => setIsHovering(false)}
       data-folder-sidebar
     >
-      {!isVisible && (
-        <button
-          className="absolute top-1/2 -translate-y-1/2 right-1 w-6 h-10 hover:bg-card-active rounded-md flex items-center justify-center z-30"
-          onClick={() => setIsVisible(true)}
-          data-tooltip={t('library.folders.tooltips.expand')}
-        >
-          <ChevronRight size={16} />
-        </button>
-      )}
+      <div className="p-3 flex justify-between items-center shrink-0 border-b border-surface">
+        <Text variant={TextVariants.title}>{t('library.folders.sourcesTitle', 'Sources')}</Text>
+      </div>
 
-      {isVisible && (
-        <div className="p-2 flex flex-col h-full">
-          <div className="pt-1 pb-2">
-            <div className="flex items-center">
-              <AnimatePresence>
-                {showHeaderButtons && (
-                  <motion.div
-                    initial={{ width: 0, opacity: 0, marginRight: 0 }}
-                    animate={{ width: 'auto', opacity: 1, marginRight: 4 }}
-                    exit={{ width: 0, opacity: 0, marginRight: 0 }}
-                    transition={{ duration: 0.2, ease: 'easeInOut' }}
-                    className="flex items-center shrink-0 overflow-hidden"
-                  >
-                    <button
-                      className="bg-surface rounded-md hover:bg-card-active flex items-center justify-center shrink-0 transition-colors w-9 h-9"
-                      onClick={() => setIsVisible(false)}
-                      data-tooltip={t('library.folders.tooltips.collapse')}
-                    >
-                      <ChevronLeft size={17.5} className="text-text-secondary" />
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <div className="relative flex-1 min-w-0">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" />
-                <input
-                  type="text"
-                  placeholder={t('library.folders.searchPlaceholder')}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-surface border border-transparent rounded-md pl-9 pr-8 py-2 text-sm focus:outline-hidden truncate"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-card-active"
-                    data-tooltip={t('library.folders.tooltips.clearSearch')}
-                  >
-                    <X size={16} className="text-text-secondary" />
-                  </button>
-                )}
-              </div>
-
-              <AnimatePresence>
-                {showHeaderButtons && (
-                  <motion.div
-                    initial={{ width: 0, opacity: 0, marginLeft: 0 }}
-                    animate={{ width: 'auto', opacity: 1, marginLeft: 4 }}
-                    exit={{ width: 0, opacity: 0, marginLeft: 0 }}
-                    transition={{ duration: 0.2, ease: 'easeInOut' }}
-                    className={clsx(
-                      'flex items-center shrink-0',
-                      isSortMenuOpen ? 'overflow-visible' : 'overflow-hidden',
-                    )}
-                  >
-                    <FolderSortMenu
-                      sort={folderTreeSort}
-                      onChange={(newSort) => {
-                        if (appSettings) handleSettingsChange({ ...appSettings, folderTreeSort: newSort });
-                      }}
-                      isOpen={isSortMenuOpen}
-                      setIsOpen={setIsSortMenuOpen}
-                    />
-                  </motion.div>
-                )}
-              </AnimatePresence>
+      <div className="p-2 flex flex-col flex-1 min-h-0">
+        <div className="pt-1 pb-2">
+          <div className="flex items-center">
+            <div className="relative flex-1 min-w-0">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" />
+              <input
+                type="text"
+                placeholder={t('library.folders.searchPlaceholder')}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-surface border border-transparent rounded-md pl-9 pr-8 py-2 text-sm focus:outline-hidden truncate"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-card-active"
+                  data-tooltip={t('library.folders.tooltips.clearSearch')}
+                >
+                  <X size={16} className="text-text-secondary" />
+                </button>
+              )}
             </div>
-          </div>
 
-          <LayoutGroup id="folder-tree">
+            <AnimatePresence>
+              {showHeaderButtons && (
+                <motion.div
+                  initial={{ width: 0, opacity: 0, marginLeft: 0 }}
+                  animate={{ width: 'auto', opacity: 1, marginLeft: 4 }}
+                  exit={{ width: 0, opacity: 0, marginLeft: 0 }}
+                  transition={{ duration: 0.2, ease: 'easeInOut' }}
+                  className={clsx(
+                    'flex items-center shrink-0',
+                    isSortMenuOpen ? 'overflow-visible' : 'overflow-hidden',
+                  )}
+                >
+                  <FolderSortMenu
+                    sort={folderTreeSort}
+                    onChange={(newSort) => {
+                      if (appSettings) handleSettingsChange({ ...appSettings, folderTreeSort: newSort });
+                    }}
+                    isOpen={isSortMenuOpen}
+                    setIsOpen={setIsSortMenuOpen}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+
+        <LayoutGroup id="folder-tree">
           <div className="flex-1 overflow-y-auto" onContextMenu={handleEmptyAreaContextMenu}>
             {hasVisiblePinnedTrees && (
               <>
@@ -1164,9 +1197,8 @@ export default function FolderTree({
               </div>
             )}
           </div>
-          </LayoutGroup>
-        </div>
-      )}
+        </LayoutGroup>
+      </div>
     </div>
   );
 }

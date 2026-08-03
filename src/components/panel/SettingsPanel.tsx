@@ -2591,6 +2591,20 @@ export default function SettingsPanel({
                     </SettingItem>
 
                     <SettingItem
+                      label={t('settings.processing.alwaysDecodeRaw')}
+                      description={t('settings.processing.alwaysDecodeRawDesc')}
+                    >
+                      <Switch
+                        checked={appSettings?.alwaysDecodeRawThumbnails ?? false}
+                        id="always-decode-raw-thumbnails-toggle"
+                        label={t('settings.processing.alwaysDecodeRawLabel')}
+                        onChange={(checked) =>
+                          onSettingsChange({ ...appSettings, alwaysDecodeRawThumbnails: checked })
+                        }
+                      />
+                    </SettingItem>
+
+                    <SettingItem
                       label={t('settings.processing.workerThreads')}
                       description={t('settings.processing.workerThreadsDesc')}
                     >

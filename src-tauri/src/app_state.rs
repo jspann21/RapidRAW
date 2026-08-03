@@ -15,18 +15,10 @@ use crate::ai_processing::AiState;
 use crate::cache_utils::DecodedImageCache;
 use crate::gpu_processing::GpuProcessor;
 use crate::image_processing::GpuContext;
+use crate::launch_request::ExternalEditSession;
 use crate::lens_correction::LensDatabase;
 use crate::local_comfy::LocalComfyProcess;
 use crate::lut_processing::Lut;
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct ExternalEditSession {
-    pub source: String,
-    pub output: String,
-    pub format: String,
-    pub jpeg_quality: u8,
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct WindowState {
@@ -154,7 +146,7 @@ pub struct AppState {
     pub ai_state: Mutex<Option<AiState>>,
     pub local_comfy_process: Mutex<Option<LocalComfyProcess>>,
     pub ai_init_lock: TokioMutex<()>,
-    pub export_task_handle: Mutex<Option<JoinHandle<()>>>,
+    pub export_task_token: Arc<Mutex<Option<Arc<AtomicBool>>>>,
     pub hdr_result: Arc<Mutex<Option<DynamicImage>>>,
     pub panorama_result: Arc<Mutex<Option<DynamicImage>>>,
     pub denoise_result: Arc<Mutex<Option<DynamicImage>>>,

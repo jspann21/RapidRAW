@@ -1,7 +1,4 @@
-import React from 'react';
 import type { SVGProps } from 'react';
-
-type ExifIconProps = React.SVGProps<SVGSVGElement>;
 
 const iconProps = {
   width: 16,

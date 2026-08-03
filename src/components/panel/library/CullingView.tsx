@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { List } from 'react-window';
+import { List, useListCallbackRef } from 'react-window';
 import {
   Loader2,
   Star as StarIcon,
@@ -447,11 +447,17 @@ function CullingPreview({
       : 'group-hover:ring-2 group-hover:ring-inset group-hover:ring-hover-color';
 
   const effectiveDragging = isDragging || (syncViewport.isActive && syncViewport.isDragging);
-  const imageTransformStyle = {
-    transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
+
+  const SCALE_FACTOR = 4;
+  const imageTransformStyle: React.CSSProperties = {
+    position: 'relative',
+    width: `${SCALE_FACTOR * 100}%`,
+    height: `${SCALE_FACTOR * 100}%`,
+    flexShrink: 0,
+    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / SCALE_FACTOR})`,
     transition: effectiveDragging ? 'none' : 'transform 0.1s ease-out',
     transformOrigin: 'center center',
-    backfaceVisibility: 'hidden' as const,
+    willChange: 'transform',
   };
 
   const isHovered = hoveredPath === image.path;
@@ -487,12 +493,15 @@ function CullingPreview({
         }}
       />
 
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-        <div className="origin-center w-full h-full flex items-center justify-center" style={imageTransformStyle}>
+      <div
+        className="absolute inset-0 flex items-center justify-center pointer-events-none z-10"
+        style={{ isolation: 'isolate' }}
+      >
+        <div style={imageTransformStyle}>
           {thumbUrl && (
             <img
               src={thumbUrl}
-              className="absolute w-full h-full object-contain drop-shadow-lg"
+              className="absolute inset-0 w-full h-full object-contain"
               alt={t('library.culling.altThumbnailLoading')}
               draggable={false}
             />
@@ -506,7 +515,7 @@ function CullingPreview({
               animate={{ opacity: 1 }}
               transition={{ duration: 0.3 }}
               src={highResSrc}
-              className="absolute w-full h-full object-contain drop-shadow-lg"
+              className="absolute inset-0 w-full h-full object-contain"
               alt={t('library.culling.altCullingPreviewHighRes')}
               draggable={false}
             />
@@ -1007,6 +1016,51 @@ export default function CullingView(props: any) {
   const [showRateBar, setShowRateBar] = useState(false);
   const [showInfoBar, setShowInfoBar] = useState(false);
 
+  const [listHandle, setListHandle] = useListCallbackRef();
+  const prevActivePath = useRef<string | null>(null);
+  const prevListElement = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!listHandle?.element || imageList.length === 0 || !activePath) return;
+
+    const element = listHandle.element as HTMLElement;
+    const isPathChanged = activePath !== prevActivePath.current;
+    const isElementChanged = element !== prevListElement.current;
+
+    if (isPathChanged || isElementChanged) {
+      const isInitial = prevActivePath.current === null || isElementChanged;
+      prevActivePath.current = activePath;
+      prevListElement.current = element;
+
+      const index = imageList.findIndex((img: ImageFile) => img.path === activePath);
+      if (index !== -1) {
+        const rowHeight = sidebarWidth - 16;
+        const targetTop = index * rowHeight;
+        const clientHeight = element.clientHeight;
+        const scrollTop = element.scrollTop;
+        const itemBottom = targetTop + rowHeight;
+        const SCROLL_OFFSET = 40;
+
+        if (isInitial) {
+          element.scrollTo({
+            top: Math.max(0, targetTop - clientHeight / 2 + rowHeight / 2),
+            behavior: 'instant',
+          });
+        } else if (itemBottom > scrollTop + clientHeight) {
+          element.scrollTo({
+            top: itemBottom - clientHeight + SCROLL_OFFSET,
+            behavior: 'smooth',
+          });
+        } else if (targetTop < scrollTop) {
+          element.scrollTo({
+            top: Math.max(0, targetTop - SCROLL_OFFSET),
+            behavior: 'smooth',
+          });
+        }
+      }
+    }
+  }, [activePath, listHandle, imageList, sidebarWidth]);
+
   const queueThumbnailRequest = useCallback(
     (path: string) => {
       if (!onRequestThumbnails) return;
@@ -1176,6 +1230,7 @@ export default function CullingView(props: any) {
         />
         <div key={`${sidebarWidth}-${thumbnailAspectRatio}`} style={{ height: listHeight, width: '100%' }}>
           <List
+            listRef={setListHandle}
             rowCount={imageList.length}
             rowHeight={sidebarWidth - 16}
             rowComponent={Row}

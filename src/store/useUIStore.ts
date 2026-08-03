@@ -1,16 +1,14 @@
 import { create } from 'zustand';
-import { ImageFile, LibraryViewMode, Panel, UiVisibility, CullingSuggestions } from '../components/ui/AppProperties';
+import {
+  ImageFile,
+  LibraryViewMode,
+  Panel,
+  UiVisibility,
+  CullingSuggestions,
+  PanelRegion,
+} from '../components/ui/AppProperties';
 
-const RIGHT_PANEL_ORDER = [
-  Panel.Metadata,
-  Panel.Adjustments,
-  Panel.Crop,
-  Panel.Masks,
-  Panel.Ai,
-  Panel.Presets,
-  Panel.History,
-  Panel.Export,
-];
+export type SwitcherPlacement = 'bottom' | 'right' | 'left' | 'top';
 
 export interface CollapsibleSectionsState {
   basic: boolean;
@@ -82,7 +80,6 @@ export interface SettingsPanelRequest {
 }
 
 interface UIState {
-  // View & Layout
   activeView: string;
   isFullScreen: boolean;
   isWindowFullScreen: boolean;
@@ -92,20 +89,30 @@ interface UIState {
   isLibraryExportPanelVisible: boolean;
   isSettingsOpen: boolean;
 
-  // Dimensions
   leftPanelWidth: number;
   rightPanelWidth: number;
   bottomPanelHeight: number;
+  leftTopHeight: number;
+  rightTopHeight: number;
   compactEditorPanelHeightOverride: number | null;
 
-  // Right Panel
+  panelLayout: Record<PanelRegion, Panel[]>;
+  activePanels: Record<PanelRegion, Panel | null>;
+  activeLayoutDragItem: Panel | null;
+  setLayoutDragItem: (panel: Panel | null) => void;
+  movePanel: (panel: Panel, toRegion: PanelRegion) => void;
+  movePanelToIndex: (panel: Panel, toRegion: PanelRegion, index: number) => void;
+  setActivePanel: (region: PanelRegion, panel: Panel | null) => void;
+
+  panelSwitcherPlacement: Record<PanelRegion, SwitcherPlacement>;
+  setPanelSwitcherPlacement: (region: PanelRegion, placement: SwitcherPlacement) => void;
+
   activeRightPanel: Panel | null;
   renderedRightPanel: Panel | null;
   slideDirection: number;
   collapsibleSectionsState: CollapsibleSectionsState;
   settingsPanelRequest: SettingsPanelRequest | null;
 
-  // Modals & Dialogs
   isCreateFolderModalOpen: boolean;
   isRenameFolderModalOpen: boolean;
   isRenameFileModalOpen: boolean;
@@ -116,13 +123,11 @@ interface UIState {
   importSourcePaths: Array<string>;
   folderActionTarget: string | null;
 
-  // Album Modals
   isCreateAlbumModalOpen: boolean;
   isCreateAlbumGroupModalOpen: boolean;
   isRenameAlbumModalOpen: boolean;
   albumActionTarget: string | null;
 
-  // Complex Modal States
   confirmModalState: ConfirmModalState;
   panoramaModalState: PanoramaModalState;
   hdrModalState: HdrModalState;
@@ -131,7 +136,6 @@ interface UIState {
   cullingModalState: CullingModalState;
   collageModalState: CollageModalState;
 
-  // Actions
   setUI: (updater: Partial<UIState> | ((state: UIState) => Partial<UIState>)) => void;
   requestSettingsPanel: (category?: string) => void;
   setRightPanel: (panel: Panel | null) => void;
@@ -151,10 +155,37 @@ export const useUIStore = create<UIState>((set, get) => ({
   isLibraryExportPanelVisible: false,
   isSettingsOpen: false,
 
-  leftPanelWidth: 256,
+  leftPanelWidth: 320,
   rightPanelWidth: 320,
   bottomPanelHeight: 144,
+  leftTopHeight: 450,
+  rightTopHeight: 450,
   compactEditorPanelHeightOverride: null,
+
+  panelLayout: {
+    leftTop: [Panel.Metadata, Panel.FolderTree, Panel.Export],
+    leftBottom: [],
+    rightTop: [Panel.Adjustments, Panel.Crop, Panel.Masks, Panel.Ai, Panel.Presets, Panel.History],
+    rightBottom: [],
+  },
+  activePanels: {
+    leftTop: Panel.FolderTree,
+    leftBottom: null,
+    rightTop: Panel.Adjustments,
+    rightBottom: null,
+  },
+  activeLayoutDragItem: null,
+
+  panelSwitcherPlacement: {
+    leftTop: 'bottom',
+    leftBottom: 'bottom',
+    rightTop: 'right',
+    rightBottom: 'right',
+  },
+  setPanelSwitcherPlacement: (region, placement) =>
+    set((state) => ({
+      panelSwitcherPlacement: { ...state.panelSwitcherPlacement, [region]: placement },
+    })),
 
   activeRightPanel: Panel.Adjustments,
   renderedRightPanel: Panel.Adjustments,
@@ -171,7 +202,6 @@ export const useUIStore = create<UIState>((set, get) => ({
   importTargetFolder: null,
   importSourcePaths: [],
   folderActionTarget: null,
-
   isCreateAlbumModalOpen: false,
   isCreateAlbumGroupModalOpen: false,
   isRenameAlbumModalOpen: false,
@@ -217,24 +247,99 @@ export const useUIStore = create<UIState>((set, get) => ({
       },
     })),
 
-  setRightPanel: (panelId) => {
-    const current = get().activeRightPanel;
-    if (panelId === current) {
-      set({ activeRightPanel: null });
-    } else {
-      const currentIndex = current ? RIGHT_PANEL_ORDER.indexOf(current) : -1;
-      const newIndex = panelId ? RIGHT_PANEL_ORDER.indexOf(panelId) : -1;
-      set({
-        slideDirection: newIndex > currentIndex ? 1 : -1,
-        activeRightPanel: panelId,
-        renderedRightPanel: panelId,
+  setLayoutDragItem: (panel) => set({ activeLayoutDragItem: panel }),
+
+  movePanel: (panel, toRegion) =>
+    set((state) => {
+      const layout = {
+        leftTop: [...state.panelLayout.leftTop],
+        leftBottom: [...state.panelLayout.leftBottom],
+        rightTop: [...state.panelLayout.rightTop],
+        rightBottom: [...state.panelLayout.rightBottom],
+      };
+      const active = { ...state.activePanels };
+
+      const fromRegion = (Object.keys(layout) as PanelRegion[]).find((region) => layout[region].includes(panel)) ?? null;
+      (Object.keys(layout) as PanelRegion[]).forEach((region) => {
+        layout[region] = layout[region].filter((candidate) => candidate !== panel);
       });
+
+      if (!layout[toRegion].includes(panel)) layout[toRegion].push(panel);
+
+      if (fromRegion && active[fromRegion] === panel) {
+        active[fromRegion] = layout[fromRegion].length > 0 ? layout[fromRegion][0] : null;
+      }
+
+      active[toRegion] = panel;
+
+      return {
+        panelLayout: layout,
+        activePanels: active,
+        activeLayoutDragItem: null,
+        activeRightPanel: panel,
+        renderedRightPanel: panel,
+      };
+    }),
+
+  movePanelToIndex: (panel, toRegion, index) =>
+    set((state) => {
+      const layout = {
+        leftTop: [...state.panelLayout.leftTop],
+        leftBottom: [...state.panelLayout.leftBottom],
+        rightTop: [...state.panelLayout.rightTop],
+        rightBottom: [...state.panelLayout.rightBottom],
+      };
+      const active = { ...state.activePanels };
+
+      const fromRegion = (Object.keys(layout) as PanelRegion[]).find((region) => layout[region].includes(panel)) ?? null;
+      (Object.keys(layout) as PanelRegion[]).forEach((region) => {
+        layout[region] = layout[region].filter((candidate) => candidate !== panel);
+      });
+
+      const clampedIndex = Math.max(0, Math.min(index, layout[toRegion].length));
+      layout[toRegion].splice(clampedIndex, 0, panel);
+
+      if (fromRegion && active[fromRegion] === panel) {
+        active[fromRegion] = layout[fromRegion].length > 0 ? layout[fromRegion][0] : null;
+      }
+      active[toRegion] = panel;
+
+      return {
+        panelLayout: layout,
+        activePanels: active,
+        activeLayoutDragItem: null,
+        activeRightPanel: panel,
+        renderedRightPanel: panel,
+      };
+    }),
+
+  setActivePanel: (region, panel) =>
+    set((state) => {
+      if (!panel) return state;
+      const updates: Partial<UIState> = {
+        activePanels: { ...state.activePanels, [region]: panel },
+        activeRightPanel: panel,
+        renderedRightPanel: panel,
+      };
+      return updates;
+    }),
+
+  setRightPanel: (panelId) => {
+    const state = get();
+    if (!panelId) return;
+
+    let targetRegion: PanelRegion | null = null;
+    for (const region of Object.keys(state.panelLayout) as PanelRegion[]) {
+      if (state.panelLayout[region].includes(panelId)) {
+        targetRegion = region;
+        break;
+      }
     }
+    if (targetRegion) state.setActivePanel(targetRegion, panelId);
   },
 
   customEscapeHandler: null,
   setCustomEscapeHandler: (handler) => set({ customEscapeHandler: handler }),
-
   searchFocusRequest: 0,
   requestSearchFocus: () => set((state) => ({ searchFocusRequest: state.searchFocusRequest + 1 })),
 }));

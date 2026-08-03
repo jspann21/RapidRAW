@@ -32,21 +32,33 @@ import {
   EditedStatus,
   LibraryDisplayMode,
 } from '../ui/AppProperties';
+import { GroupBadgeInfo, GroupId } from '../../utils/imageGrouping';
 import { ImportState, Status } from '../ui/ExportImportProperties';
 import Text from '../ui/Text';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useUIStore } from '../../store/useUIStore';
 import SettingsPanel from './SettingsPanel';
+import { getFolderDisplayName } from '../../utils/folderPaths';
+import { openExternalUrl } from '../../utils/safeOpenUrl';
 
 import LibraryGrid from './library/LibraryGrid';
 import { SearchInput, ViewOptionsDropdown } from './library/LibraryHeader';
+
+export interface ColumnWidths {
+  thumbnail: number;
+  name: number;
+  date: number;
+  rating: number;
+  color: number;
+}
 
 interface MainLibraryProps {
   activePath: string | null;
   aiModelDownloadStatus: string | null;
   appSettings: AppSettings | null;
   currentFolderPath: string | null;
+  groupBadgeInfo: Map<GroupId, GroupBadgeInfo> | null;
   imageList: Array<ImageFile>;
   imageRatings: Record<string, number>;
   importState: ImportState;
@@ -165,6 +177,7 @@ export default function MainLibrary(props: MainLibraryProps) {
   const [isUpdateAvailable, setIsUpdateAvailable] = useState(false);
   const [latestVersion, setLatestVersion] = useState('');
   const [isBusyDelayed, setIsBusyDelayed] = useState(false);
+  const [isBusyLoaderMounted, setIsBusyLoaderMounted] = useState(false);
   const [isProgressHovered, setIsProgressHovered] = useState(false);
   const isSettingsOpen = useUIStore((state) => state.isSettingsOpen);
 
@@ -200,7 +213,6 @@ export default function MainLibrary(props: MainLibraryProps) {
       { key: RawStatus.All, label: t('library.filters.raw.all') },
       { key: RawStatus.RawOnly, label: t('library.filters.raw.rawOnly') },
       { key: RawStatus.NonRawOnly, label: t('library.filters.raw.nonRawOnly') },
-      { key: RawStatus.RawOverNonRaw, label: t('library.filters.raw.preferRaw') },
     ],
     [t],
   );
@@ -265,9 +277,15 @@ export default function MainLibrary(props: MainLibraryProps) {
 
   useEffect(() => {
     if (settingsPanelRequest) {
-      setShowSettings(true);
+      setUI({ isSettingsOpen: true });
     }
-  }, [settingsPanelRequest]);
+  }, [settingsPanelRequest, setUI]);
+
+  useEffect(() => {
+    if (isBusyDelayed) {
+      setIsBusyLoaderMounted(true);
+    }
+  }, [isBusyDelayed]);
 
   useEffect(() => {
     const compareVersions = (v1: string, v2: string) => {
@@ -310,22 +328,6 @@ export default function MainLibrary(props: MainLibraryProps) {
 
     checkVersion();
   }, []);
-
-  if (showSettings && props.rootPaths?.length > 0 && props.appSettings) {
-    return (
-      <div className="flex-1 h-full min-w-0 bg-bg-secondary rounded-lg overflow-hidden p-6">
-        <SettingsPanel
-          appSettings={props.appSettings}
-          initialCategory={settingsPanelRequest?.category}
-          initialCategoryRequestId={settingsPanelRequest?.id}
-          onBack={() => setShowSettings(false)}
-          onLibraryRefresh={props.onLibraryRefresh}
-          onSettingsChange={props.onSettingsChange}
-          rootPaths={props.rootPaths}
-        />
-      </div>
-    );
-  }
 
   if (!props.rootPaths || props.rootPaths.length === 0) {
     if (!props.appSettings) {
@@ -546,7 +548,7 @@ export default function MainLibrary(props: MainLibraryProps) {
   return (
     <div className="flex-1 flex flex-col h-full min-w-0 bg-bg-secondary rounded-lg overflow-hidden">
       <header
-        className="p-4 shrink-0 flex justify-between items-center border-b border-surface gap-4"
+        className="p-3 shrink-0 flex justify-between items-center border-b border-surface gap-4"
         onMouseEnter={() => setIsProgressHovered(true)}
         onMouseLeave={() => setIsProgressHovered(false)}
       >
@@ -563,8 +565,13 @@ export default function MainLibrary(props: MainLibraryProps) {
                 className={`flex items-center gap-2 overflow-hidden transition-all duration-300 whitespace-nowrap ${
                   isBusyDelayed ? 'max-w-xs opacity-100' : 'max-w-0 opacity-0'
                 }`}
+                onTransitionEnd={(e) => {
+                  if (e.propertyName === 'opacity' && !isBusyDelayed) {
+                    setIsBusyLoaderMounted(false);
+                  }
+                }}
               >
-                <Loader2 size={14} className="animate-spin text-text-secondary shrink-0" />
+                {isBusyLoaderMounted && <Loader2 size={14} className="animate-spin text-text-secondary shrink-0" />}
                 <div
                   className={`flex items-center transition-all duration-300 ease-out overflow-hidden ${
                     isProgressHovered && isBusyDelayed && (props.thumbnailProgress?.total ?? 0) > 0
@@ -604,7 +611,6 @@ export default function MainLibrary(props: MainLibraryProps) {
               <span>{t('library.import.failed')}</span>
             </Text>
           )}
-
           <DisplayModeSwitch displayMode={libraryDisplayMode} setDisplayMode={setLibraryDisplayMode} t={t} />
 
           <div className="flex items-center bg-surface p-1 rounded-lg gap-1 border border-border-color/20">
@@ -613,6 +619,7 @@ export default function MainLibrary(props: MainLibraryProps) {
               libraryViewMode={props.libraryViewMode}
               onSelectSize={props.onThumbnailSizeChange}
               onSelectAspectRatio={props.onThumbnailAspectRatioChange}
+              onLibraryRefresh={props.onLibraryRefresh}
               setLibraryViewMode={props.setLibraryViewMode}
               thumbnailSize={props.thumbnailSize}
               thumbnailAspectRatio={props.thumbnailAspectRatio}
