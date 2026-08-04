@@ -74,6 +74,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "webkit2gtk",
+ "webkit2gtk-nvidia-quirk",
  "webp",
  "wgpu",
  "zip",
@@ -7509,6 +7510,12 @@ dependencies = [
  "soup3",
  "webkit2gtk-sys",
 ]
+
+[[package]]
+name = "webkit2gtk-nvidia-quirk"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fc2638b248b207d2be5a5beef8bc4f1b9c656b093153f268fa1ed8557493290"
 
 [[package]]
 name = "webkit2gtk-sys"

@@ -93,6 +93,7 @@ include_dir = "0.7.4"
 gtk = "0.18.2"
 webkit2gtk = "=2.0.2"
 keyring = { version = "3.6.3", default-features = false, features = ["linux-native"] }
+webkit2gtk-nvidia-quirk = "1.4"
 
 [build-dependencies]
 tauri-build = { version = "2.6", features = [] }
