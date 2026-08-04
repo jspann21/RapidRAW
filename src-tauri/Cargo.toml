@@ -117,3 +117,9 @@ strip = true
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
+
+# Upstream little_exif 0.6.23 pins quick-xml 0.37.5, which is affected by
+# RUSTSEC-2026-0194 and RUSTSEC-2026-0195. Use the vendored, source-compatible
+# patch until an upstream release updates quick-xml to 0.41.0 or later.
+[patch.crates-io]
+little_exif = { path = "vendor/little_exif" }
