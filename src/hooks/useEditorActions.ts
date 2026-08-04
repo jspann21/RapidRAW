@@ -237,22 +237,19 @@ export function useEditorActions() {
       libraryActivePath ??
       (multiSelectedPaths.length === 1 ? multiSelectedPaths[0] : null);
 
-    const pathToCopyFrom =
-      pathOverride || (selectedImage ? selectedImage.path : libraryActivePath || multiSelectedPaths[0]);
+    try {
+      let sourceAdjustments: Adjustments;
 
-    if (selectedImage && pathToCopyFrom === selectedImage.path) {
-      sourceAdjustments = adjustments;
-    } else if (pathToCopyFrom) {
-      try {
-        const meta: any = await invoke(Invokes.LoadMetadata, { path: pathToCopyFrom });
-        if (meta?.adjustments && !meta.adjustments.is_null) {
-          sourceAdjustments = normalizeLoadedAdjustments(meta.adjustments);
-        } else {
-          sourceAdjustments = INITIAL_ADJUSTMENTS;
-        }
-      } catch (err) {
-        toast.error(`Failed to load metadata for copying: ${err}`);
-        return;
+      if (selectedImage && targetPath === selectedImage.path) {
+        sourceAdjustments = adjustments;
+      } else if (targetPath) {
+        const metadata = await invoke<{ adjustments?: unknown }>(Invokes.LoadMetadata, { path: targetPath });
+        sourceAdjustments = hasAdjustmentPayload(metadata.adjustments)
+          ? normalizeLoadedAdjustments(metadata.adjustments)
+          : { ...INITIAL_ADJUSTMENTS };
+        setLibrary({ libraryActiveAdjustments: sourceAdjustments });
+      } else {
+        sourceAdjustments = useLibraryStore.getState().libraryActiveAdjustments;
       }
 
       useEditorStore

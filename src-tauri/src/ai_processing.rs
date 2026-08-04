@@ -257,6 +257,547 @@ fn verify_sha256(path: &Path, expected_hash: &str) -> Result<bool> {
     Ok(hex_hash == expected_hash)
 }
 
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalAiGpuInfo {
+    pub name: Option<String>,
+    pub driver_version: Option<String>,
+    pub vram_mb: Option<u64>,
+    pub compute_capability: Option<String>,
+    pub is_nvidia: bool,
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalAiModelInfo {
+    pub id: String,
+    pub name: String,
+    pub filename: String,
+    pub file_type: String,
+    pub required: bool,
+    pub installed: bool,
+    pub valid: bool,
+    pub size_bytes: u64,
+    pub sha256: String,
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalAiRuntimeDependency {
+    pub name: String,
+    pub kind: String,
+    pub found: bool,
+    pub path: Option<String>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalAiStatus {
+    pub is_windows: bool,
+    pub cuda_available: bool,
+    pub cuda_provider_available: bool,
+    pub cuda_provider_error: Option<String>,
+    pub model_dir: String,
+    pub model_dir_writable: bool,
+    pub model_dir_error: Option<String>,
+    pub disk_usage_bytes: u64,
+    pub required_file_types: Vec<String>,
+    pub runtime_dependencies: Vec<LocalAiRuntimeDependency>,
+    pub missing_runtime_dependencies: Vec<String>,
+    pub gpu: LocalAiGpuInfo,
+    pub models: Vec<LocalAiModelInfo>,
+    pub local_comfy: crate::local_comfy::LocalComfyStatus,
+}
+
+struct LocalAiModelSpec {
+    id: &'static str,
+    name: &'static str,
+    filename: &'static str,
+    url: &'static str,
+    sha256: &'static str,
+    file_type: &'static str,
+    required: bool,
+}
+
+const LOCAL_AI_MODEL_SPECS: &[LocalAiModelSpec] = &[LocalAiModelSpec {
+    id: "lama-inpainting",
+    name: "LaMa Inpainting",
+    filename: LAMA_FILENAME,
+    url: LAMA_URL,
+    sha256: LAMA_SHA256,
+    file_type: ".onnx",
+    required: true,
+}];
+
+fn find_local_ai_model_spec(model_id: &str) -> Result<&'static LocalAiModelSpec> {
+    LOCAL_AI_MODEL_SPECS
+        .iter()
+        .find(|spec| spec.id == model_id)
+        .ok_or_else(|| anyhow::anyhow!("Unknown local AI model: {}", model_id))
+}
+
+fn default_gpu_info() -> LocalAiGpuInfo {
+    LocalAiGpuInfo {
+        name: None,
+        driver_version: None,
+        vram_mb: None,
+        compute_capability: None,
+        is_nvidia: false,
+    }
+}
+
+fn display_path(path: &Path) -> String {
+    let path = path.to_string_lossy();
+    path.strip_prefix(r"\\?\")
+        .or_else(|| path.strip_prefix(r"\??\"))
+        .unwrap_or(&path)
+        .to_string()
+}
+
+#[cfg(target_os = "windows")]
+fn nvidia_smi_command() -> Command {
+    use std::os::windows::process::CommandExt;
+
+    for path in [
+        "C:/Windows/System32/nvidia-smi.exe",
+        "C:/Program Files/NVIDIA Corporation/NVSMI/nvidia-smi.exe",
+    ] {
+        if Path::new(path).exists() {
+            let mut command = Command::new(path);
+            command.creation_flags(CREATE_NO_WINDOW);
+            return command;
+        }
+    }
+
+    let mut command = Command::new("nvidia-smi");
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+#[cfg(not(target_os = "windows"))]
+fn nvidia_smi_command() -> Command {
+    Command::new("nvidia-smi")
+}
+
+fn query_nvidia_gpu() -> LocalAiGpuInfo {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let mut command = nvidia_smi_command();
+        let output = command
+            .args([
+                "--query-gpu=name,driver_version,memory.total,compute_cap",
+                "--format=csv,noheader,nounits",
+            ])
+            .output();
+        let _ = tx.send(output);
+    });
+
+    let Ok(output) = rx.recv_timeout(NVIDIA_SMI_TIMEOUT) else {
+        return default_gpu_info();
+    };
+    let Ok(output) = output else {
+        return default_gpu_info();
+    };
+    if !output.status.success() {
+        return default_gpu_info();
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let first_line = stdout.lines().next().unwrap_or_default();
+    let mut parts = first_line.split(',').map(|part| part.trim());
+    let name = parts
+        .next()
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let driver_version = parts
+        .next()
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let vram_mb = parts
+        .next()
+        .and_then(|value| value.split_whitespace().next())
+        .and_then(|value| value.parse::<u64>().ok());
+    let compute_capability = parts
+        .next()
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let is_nvidia = name
+        .as_deref()
+        .map(|value| value.to_ascii_lowercase().contains("nvidia"))
+        .unwrap_or(false);
+
+    LocalAiGpuInfo {
+        name,
+        driver_version,
+        vram_mb,
+        compute_capability,
+        is_nvidia,
+    }
+}
+
+fn check_model_dir_writable(models_dir: &Path) -> (bool, Option<String>) {
+    if let Err(error) = fs::create_dir_all(models_dir) {
+        return (false, Some(error.to_string()));
+    }
+
+    let test_path = models_dir.join(".rapidraw-write-test");
+    match fs::write(&test_path, b"ok").and_then(|_| fs::remove_file(&test_path)) {
+        Ok(()) => (true, None),
+        Err(error) => (false, Some(error.to_string())),
+    }
+}
+
+fn model_info_for_spec(
+    models_dir: &Path,
+    spec: &LocalAiModelSpec,
+    verify_hash: bool,
+) -> Result<LocalAiModelInfo> {
+    let path = models_dir.join(spec.filename);
+    let installed = path.exists();
+    let size_bytes = if installed {
+        fs::metadata(&path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let valid = if installed && verify_hash {
+        verify_sha256(&path, spec.sha256).unwrap_or(false)
+    } else {
+        installed
+    };
+
+    Ok(LocalAiModelInfo {
+        id: spec.id.to_string(),
+        name: spec.name.to_string(),
+        filename: spec.filename.to_string(),
+        file_type: spec.file_type.to_string(),
+        required: spec.required,
+        installed,
+        valid,
+        size_bytes,
+        sha256: spec.sha256.to_string(),
+    })
+}
+
+fn model_info_for_generative_asset(
+    models_dir: &Path,
+    asset: &crate::local_comfy::GenerativeAssetSpec,
+    verify_hash: bool,
+) -> Result<LocalAiModelInfo> {
+    let path = models_dir.join(asset.relative_path);
+    let installed = path.exists();
+    let size_bytes = if installed {
+        fs::metadata(&path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let valid = if installed && verify_hash {
+        verify_sha256(&path, asset.sha256).unwrap_or(false)
+    } else {
+        installed
+    };
+
+    Ok(LocalAiModelInfo {
+        id: asset.id.to_string(),
+        name: asset.name.to_string(),
+        filename: asset.relative_path.to_string(),
+        file_type: ".safetensors".to_string(),
+        required: asset.required,
+        installed,
+        valid,
+        size_bytes,
+        sha256: asset.sha256.to_string(),
+    })
+}
+
+fn model_dir_disk_usage(models_dir: &Path) -> u64 {
+    fs::read_dir(models_dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.flatten())
+        .filter_map(|entry| entry.metadata().ok())
+        .filter(|metadata| metadata.is_file())
+        .map(|metadata| metadata.len())
+        .sum()
+}
+
+fn path_dir_if_exists(path: impl AsRef<Path>) -> Option<PathBuf> {
+    let path = path.as_ref();
+    if path.as_os_str().is_empty() {
+        return None;
+    }
+    let dir = if path.is_file() {
+        path.parent()?.to_path_buf()
+    } else {
+        path.to_path_buf()
+    };
+    if dir.exists() && dir.is_dir() {
+        Some(dir)
+    } else {
+        None
+    }
+}
+
+fn add_env_path_dirs(dirs: &mut Vec<PathBuf>, env_name: &str) {
+    let Some(value) = std::env::var_os(env_name) else {
+        return;
+    };
+    for dir in std::env::split_paths(&value) {
+        if let Some(dir) = path_dir_if_exists(dir) {
+            dirs.push(dir);
+        }
+    }
+}
+
+fn add_runtime_dir_candidate(dirs: &mut Vec<PathBuf>, path: impl AsRef<Path>) {
+    let path = path.as_ref();
+    if path.as_os_str().is_empty() {
+        return;
+    }
+    dirs.push(path.to_path_buf());
+    dirs.push(path.join("bin"));
+}
+
+#[cfg(target_os = "windows")]
+fn add_dirs_containing_any(
+    dirs: &mut Vec<PathBuf>,
+    root: &Path,
+    filenames: &[&str],
+    max_depth: usize,
+) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+
+    let mut child_dirs = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            child_dirs.push(path);
+            continue;
+        }
+
+        let Some(filename) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if filenames
+            .iter()
+            .any(|expected| filename.eq_ignore_ascii_case(expected))
+        {
+            dirs.push(root.to_path_buf());
+        }
+    }
+
+    if max_depth == 0 {
+        return;
+    }
+    for child in child_dirs {
+        add_dirs_containing_any(dirs, &child, filenames, max_depth - 1);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn add_common_cuda_dirs(dirs: &mut Vec<PathBuf>) {
+    for env_name in [
+        "CUDA_PATH",
+        "CUDA_PATH_V12_9",
+        "CUDA_PATH_V12_8",
+        "CUDA_PATH_V12_7",
+        "CUDA_PATH_V12_6",
+        "CUDA_PATH_V12_5",
+        "CUDA_PATH_V12_4",
+        "CUDA_PATH_V12_3",
+        "CUDA_PATH_V12_2",
+        "CUDA_PATH_V12_1",
+        "CUDA_PATH_V12_0",
+    ] {
+        if let Some(value) = std::env::var_os(env_name) {
+            dirs.push(PathBuf::from(value).join("bin"));
+        }
+    }
+
+    let cuda_root = Path::new("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA");
+    if let Ok(entries) = fs::read_dir(cuda_root) {
+        let mut versions = entries
+            .flatten()
+            .map(|entry| entry.path().join("bin"))
+            .filter(|path| path.exists())
+            .collect::<Vec<_>>();
+        versions.sort_by(|a, b| b.cmp(a));
+        dirs.extend(versions);
+    }
+
+    for root in [
+        "C:/Program Files/NVIDIA/CUDNN",
+        "C:/Program Files/NVIDIA/cuDNN",
+        "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDNN",
+    ] {
+        if let Ok(entries) = fs::read_dir(root) {
+            for entry in entries.flatten() {
+                add_runtime_dir_candidate(dirs, entry.path());
+            }
+        }
+        add_dirs_containing_any(
+            dirs,
+            Path::new(root),
+            ort::execution_providers::cuda::CUDNN_DYLIBS,
+            4,
+        );
+    }
+}
+
+fn dedupe_dirs(dirs: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut result = Vec::new();
+    let mut seen = Vec::<String>::new();
+    for dir in dirs {
+        let Some(dir) = path_dir_if_exists(dir) else {
+            continue;
+        };
+        let canonical = dir.canonicalize().unwrap_or(dir);
+        let normalized = canonical.to_string_lossy().to_ascii_lowercase();
+        if !seen.iter().any(|existing| existing == &normalized) {
+            seen.push(normalized);
+            result.push(canonical);
+        }
+    }
+    result
+}
+
+fn runtime_dependency_names() -> Vec<(&'static str, &'static str)> {
+    let mut dependencies = Vec::new();
+    for name in ort::execution_providers::cuda::CUDA_DYLIBS {
+        dependencies.push((*name, "CUDA"));
+    }
+    for name in ort::execution_providers::cuda::CUDNN_DYLIBS {
+        dependencies.push((*name, "cuDNN"));
+    }
+    dependencies
+}
+
+fn local_ai_runtime_dirs(app_handle: &tauri::AppHandle) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+
+    if let Ok(settings) = crate::app_settings::load_settings(app_handle.clone()) {
+        if let Some(path) = settings.local_ai_cuda_runtime_path {
+            add_runtime_dir_candidate(&mut dirs, path);
+        }
+        if let Some(path) = settings.local_ai_cudnn_runtime_path {
+            add_runtime_dir_candidate(&mut dirs, path);
+        }
+    }
+
+    if let Ok(resource_path) = app_handle
+        .path()
+        .resolve("resources", tauri::path::BaseDirectory::Resource)
+    {
+        dirs.push(resource_path);
+    }
+    if let Ok(executable) = std::env::current_exe()
+        && let Some(parent) = executable.parent()
+    {
+        dirs.push(parent.to_path_buf());
+    }
+
+    add_env_path_dirs(&mut dirs, "PATH");
+    #[cfg(target_os = "windows")]
+    add_common_cuda_dirs(&mut dirs);
+    dedupe_dirs(dirs)
+}
+
+fn inspect_runtime_dependencies(
+    app_handle: &tauri::AppHandle,
+) -> (Vec<LocalAiRuntimeDependency>, Vec<String>, Vec<PathBuf>) {
+    if !cfg!(target_os = "windows") {
+        return (Vec::new(), Vec::new(), Vec::new());
+    }
+
+    let dirs = local_ai_runtime_dirs(app_handle);
+    let mut dependencies = Vec::new();
+    let mut missing = Vec::new();
+    let mut found_dirs = Vec::new();
+
+    for (name, kind) in runtime_dependency_names() {
+        let found_path = dirs
+            .iter()
+            .map(|dir| dir.join(name))
+            .find(|path| path.exists());
+        if let Some(path) = found_path {
+            if let Some(parent) = path.parent() {
+                found_dirs.push(parent.to_path_buf());
+            }
+            dependencies.push(LocalAiRuntimeDependency {
+                name: name.to_string(),
+                kind: kind.to_string(),
+                found: true,
+                path: Some(display_path(&path)),
+            });
+        } else {
+            missing.push(name.to_string());
+            dependencies.push(LocalAiRuntimeDependency {
+                name: name.to_string(),
+                kind: kind.to_string(),
+                found: false,
+                path: None,
+            });
+        }
+    }
+
+    (dependencies, missing, dedupe_dirs(found_dirs))
+}
+
+fn prepend_runtime_dirs_to_path(dirs: &[PathBuf]) {
+    if dirs.is_empty() {
+        return;
+    }
+
+    let current_path = std::env::var_os("PATH").unwrap_or_default();
+    let mut paths = std::env::split_paths(&current_path).collect::<Vec<_>>();
+    for dir in dirs.iter().rev() {
+        if !paths.iter().any(|path| path == dir) {
+            paths.insert(0, dir.clone());
+        }
+    }
+    if let Ok(joined) = std::env::join_paths(paths) {
+        unsafe {
+            std::env::set_var("PATH", joined);
+        }
+    }
+}
+
+fn prepare_cuda_runtime(
+    app_handle: &tauri::AppHandle,
+) -> (Vec<LocalAiRuntimeDependency>, Vec<String>) {
+    let (dependencies, missing, found_dirs) = inspect_runtime_dependencies(app_handle);
+    prepend_runtime_dirs_to_path(&found_dirs);
+    (dependencies, missing)
+}
+
+fn missing_runtime_dependency_help(missing: &[String]) -> String {
+    let has_cuda = missing.iter().any(|name| {
+        let lower = name.to_ascii_lowercase();
+        lower.contains("cuda") || lower.contains("cublas")
+    });
+    let has_cudnn = missing
+        .iter()
+        .any(|name| name.to_ascii_lowercase().contains("cudnn"));
+
+    match (has_cuda, has_cudnn) {
+        (true, true) => format!(
+            "CUDA Toolkit 12.x and cuDNN 9 are missing. Install CUDA from {CUDA_DOWNLOAD_URL}, then install cuDNN from {CUDNN_DOWNLOAD_URL}. Guide: {CUDNN_WINDOWS_INSTALL_GUIDE_URL}."
+        ),
+        (true, false) => format!(
+            "CUDA Toolkit 12.x is missing. Install it from {CUDA_DOWNLOAD_URL}, then refresh Local GPU status."
+        ),
+        (false, true) => format!(
+            "cuDNN 9 is missing. Install it from {CUDNN_DOWNLOAD_URL}, then refresh Local GPU status. Guide: {CUDNN_WINDOWS_INSTALL_GUIDE_URL}."
+        ),
+        (false, false) => "Required CUDA runtime files are missing. Install CUDA Toolkit 12.x and cuDNN 9, then refresh Local GPU status.".to_string(),
+    }
+}
+
 fn promote_legacy_model_filename(
     models_dir: &Path,
     expected_filename: &str,

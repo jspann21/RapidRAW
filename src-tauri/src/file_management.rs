@@ -2936,12 +2936,8 @@ pub async fn apply_adjustments_to_paths(
         };
 
         paths.par_iter().for_each(|path_str| {
-            let result = generate_single_thumbnail_and_cache(
-                path_str,
-                None,
-                true,
-                &thumbnail_context,
-            );
+            let result =
+                generate_single_thumbnail_and_cache(path_str, None, true, &thumbnail_context);
 
             if let Some((thumbnail_path, rating, is_edited)) = result {
                 emit_thumbnail_generated(&app_handle, path_str, &thumbnail_path, rating, is_edited);
@@ -3013,12 +3009,8 @@ pub async fn reset_adjustments_for_paths(
         };
 
         paths.par_iter().for_each(|path_str| {
-            let result = generate_single_thumbnail_and_cache(
-                path_str,
-                None,
-                true,
-                &thumbnail_context,
-            );
+            let result =
+                generate_single_thumbnail_and_cache(path_str, None, true, &thumbnail_context);
 
             if let Some((thumbnail_path, rating, is_edited)) = result {
                 emit_thumbnail_generated(&app_handle, path_str, &thumbnail_path, rating, is_edited);

@@ -21,6 +21,16 @@ export interface InteractivePatch {
   normH: number;
 }
 
+export interface PasteAdjustmentsUndoSnapshot {
+  path: string;
+  adjustments: unknown;
+  normalizedAdjustments: Adjustments;
+}
+
+export interface PasteAdjustmentsUndoEntry {
+  snapshots: PasteAdjustmentsUndoSnapshot[];
+}
+
 interface BaseRenderSize extends ImageDimensions {
   containerHeight: number;
   containerWidth: number;
@@ -101,7 +111,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   selectedImage: null,
   adjustments: INITIAL_ADJUSTMENTS,
   previewOverride: null,
-  history: [INITIAL_ADJUSTMENTS],
+  history: [createHistoryEntry('Original', INITIAL_ADJUSTMENTS)],
   historyIndex: 0,
   pasteAdjustmentsUndoStack: [],
   suppressNextMultiSelectionSync: false,

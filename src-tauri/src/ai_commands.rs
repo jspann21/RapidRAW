@@ -7,15 +7,15 @@ use image::{GrayImage, ImageFormat};
 
 use crate::ai_connector;
 use crate::ai_processing::{
-    AiDepthMaskParameters, AiForegroundMaskParameters, AiSkyMaskParameters,
+    self, AiDepthMaskParameters, AiForegroundMaskParameters, AiSkyMaskParameters,
     AiSubjectMaskParameters, CachedDepthMap, generate_image_embeddings, get_or_init_ai_models,
-    get_or_init_lama_cuda_model, run_depth_anything_model, run_sam_decoder, run_sky_seg_model,
-    run_u2netp_model,
+    run_depth_anything_model, run_sam_decoder, run_sky_seg_model, run_u2netp_model,
 };
 use crate::app_settings::load_settings;
 use crate::app_state::AppState;
 use crate::cache_utils::GEOMETRY_KEYS;
 use crate::get_cached_full_warped_image;
+use crate::local_comfy;
 
 fn encode_to_base64_png(image: &GrayImage) -> Result<String, String> {
     let mut buf = Cursor::new(Vec::new());
@@ -426,4 +426,106 @@ pub async fn test_ai_connector_connection(address: String) -> Result<(), String>
         Ok(false) => Err("Server reachable but returned bad health status".to_string()),
         Err(e) => Err(e.to_string()),
     }
+}
+
+#[tauri::command]
+pub fn get_local_ai_status(
+    probe_runtime: Option<bool>,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<ai_processing::LocalAiStatus, String> {
+    ai_processing::get_local_ai_status(
+        &app_handle,
+        probe_runtime.unwrap_or(false),
+        &state.local_comfy_process,
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn download_local_ai_model(
+    model_id: String,
+    app_handle: tauri::AppHandle,
+) -> Result<ai_processing::LocalAiModelInfo, String> {
+    ai_processing::download_local_ai_model(&app_handle, &model_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_local_ai_model(
+    model_id: String,
+    app_handle: tauri::AppHandle,
+) -> Result<ai_processing::LocalAiModelInfo, String> {
+    ai_processing::delete_local_ai_model(&app_handle, &model_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn run_local_ai_self_test(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    ai_processing::run_local_ai_self_test(&app_handle, &state.ai_state, &state.ai_init_lock)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn download_local_ai_runtime(
+    app_handle: tauri::AppHandle,
+) -> Result<local_comfy::LocalComfyStatus, String> {
+    local_comfy::download_runtime(&app_handle)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_local_ai_runtime(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<local_comfy::LocalComfyStatus, String> {
+    local_comfy::delete_runtime(&app_handle, &state.local_comfy_process).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn download_local_ai_generative_assets(
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let models_dir = ai_processing::get_models_dir(&app_handle).map_err(|e| e.to_string())?;
+    local_comfy::download_generative_assets(&app_handle, &models_dir)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn start_local_ai_runtime(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<u16, String> {
+    let models_dir = ai_processing::get_models_dir(&app_handle).map_err(|e| e.to_string())?;
+    local_comfy::start_runtime(&app_handle, &models_dir, &state.local_comfy_process)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn stop_local_ai_runtime(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    local_comfy::stop_runtime(&state.local_comfy_process).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn run_local_generative_self_test(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let models_dir = ai_processing::get_models_dir(&app_handle).map_err(|e| e.to_string())?;
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    local_comfy::run_self_test(
+        &app_handle,
+        &models_dir,
+        &state.local_comfy_process,
+        &settings.local_ai_generation_settings,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }

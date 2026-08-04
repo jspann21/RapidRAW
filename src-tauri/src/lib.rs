@@ -79,7 +79,9 @@ use crate::cache_utils::{
     DecodedImageCache, GEOMETRY_KEYS, calculate_full_job_hash, calculate_geometry_hash,
     calculate_transform_hash, calculate_visual_hash,
 };
-use crate::file_management::{parse_virtual_path, read_file_mapped};
+use crate::file_management::{
+    parse_virtual_path, read_file_mapped, validate_preset_adjustments, validate_preset_label,
+};
 use crate::formats::is_raw_file;
 use crate::hdr_deghosting::{align_hdr_frames, assert_uniform_dimensions, load_hdr_frames};
 use crate::image_loader::{composite_patches_on_image, load_and_composite};
@@ -128,6 +130,11 @@ pub struct CommunityPreset {
     #[serde(rename = "includeCropTransform")]
     pub include_crop_transform: Option<bool>,
 }
+
+const MAX_COMMUNITY_MANIFEST_BYTES: usize = 1024 * 1024;
+const MAX_COMMUNITY_PRESETS: usize = 200;
+const COMMUNITY_PRESETS_MANIFEST_SHA256: &str =
+    "260e58b13d002e66be0efeed8c2739d9949a502ed22f76d7d94207b0d07d589a";
 
 #[derive(serde::Serialize)]
 struct ImageDimensions {
@@ -2367,6 +2374,16 @@ pub fn run() {
             ai_commands::generate_ai_depth_mask,
             ai_commands::check_ai_connector_status,
             ai_commands::test_ai_connector_connection,
+            ai_commands::get_local_ai_status,
+            ai_commands::download_local_ai_model,
+            ai_commands::delete_local_ai_model,
+            ai_commands::run_local_ai_self_test,
+            ai_commands::download_local_ai_runtime,
+            ai_commands::delete_local_ai_runtime,
+            ai_commands::download_local_ai_generative_assets,
+            ai_commands::start_local_ai_runtime,
+            ai_commands::stop_local_ai_runtime,
+            ai_commands::run_local_generative_self_test,
             ai_commands::generate_full_image_depth_map,
             inpainting::invoke_generative_replace_with_mask_def,
             inpainting::generate_manual_cleanup_patch,

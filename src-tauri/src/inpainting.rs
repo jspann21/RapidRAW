@@ -10,6 +10,7 @@ use crate::app_settings::load_settings;
 use crate::app_state::AppState;
 use crate::image_loader::composite_patches_on_image;
 use crate::image_processing::apply_linear_to_srgb;
+use crate::local_comfy;
 use crate::mask_generation::{AiPatchDefinition, MaskDefinition, generate_mask_bitmap};
 use crate::resolve_warped_image_for_masks;
 
@@ -393,7 +394,33 @@ pub async fn invoke_generative_replace_with_mask_def(
     let mask_bitmap =
         crate::image_processing::inverse_transform_mask(mask_bitmap, &current_adjustments);
 
-    let patch_rgba = if use_fast_inpaint {
+    let ai_provider = settings.ai_provider.as_deref().unwrap_or("cpu");
+
+    let patch_rgba = if ai_provider == "local-gpu" && use_fast_inpaint {
+        let lama_model = ai_processing::get_or_init_lama_cuda_model(
+            &app_handle,
+            &state.ai_state,
+            &state.ai_init_lock,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+        ai_processing::run_lama_inpainting(&source_image, &mask_bitmap, &lama_model)
+            .map_err(|e| e.to_string())?
+    } else if ai_provider == "local-gpu" {
+        let models_dir = ai_processing::get_models_dir(&app_handle).map_err(|e| e.to_string())?;
+        local_comfy::process_inpainting(
+            &app_handle,
+            &models_dir,
+            &state.local_comfy_process,
+            &source_image,
+            &mask_bitmap,
+            patch_definition.prompt,
+            &settings.local_ai_generation_settings,
+        )
+        .await
+        .map_err(|e| e.to_string())?
+    } else if use_fast_inpaint {
         let lama_model = ai_processing::get_or_init_lama_model(
             &app_handle,
             &state.ai_state,
