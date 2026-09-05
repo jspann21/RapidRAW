@@ -123,3 +123,4 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-cli
 # patch until an upstream release updates quick-xml to 0.41.0 or later.
 [patch.crates-io]
 little_exif = { path = "vendor/little_exif" }
+ glib = { path = "vendor/glib-0.18.5" }
